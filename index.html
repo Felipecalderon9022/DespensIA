@@ -252,7 +252,8 @@
 
             try {
                 genAI = new GoogleGenerativeAI(CONFIG.GEMINI_API_KEY);
-                model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+                // Using gemini-1.5-pro for better compatibility with vision tasks
+                model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
                 return true;
             } catch (error) {
                 console.error('Error al inicializar Gemini:', error);
@@ -1249,6 +1250,5 @@ Responde SOLO con el JSON, sin texto adicional.`;
 
     </script>
 </body>
-
 
 </html>
