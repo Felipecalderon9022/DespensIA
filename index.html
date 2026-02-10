@@ -1,0 +1,1169 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>DespensIA - Tu Despensa Inteligente</title>
+
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <!-- Supabase JS SDK -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <!-- Google Generative AI SDK -->
+    <script type="importmap">
+    {
+        "imports": {
+            "@google/generative-ai": "https://esm.run/@google/generative-ai"
+        }
+    }
+    </script>
+
+    <style>
+        /* Custom Animations */
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                transform: scale(1);
+            }
+
+            50% {
+                transform: scale(1.05);
+            }
+        }
+
+        .fade-in {
+            animation: fadeIn 0.3s ease-out;
+        }
+
+        .pulse-animation {
+            animation: pulse 2s infinite;
+        }
+
+        /* Traffic Light Colors */
+        .status-red {
+            background: linear-gradient(135deg, #EF4444 0%, #DC2626 100%);
+        }
+
+        .status-yellow {
+            background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%);
+        }
+
+        .status-green {
+            background: linear-gradient(135deg, #10B981 0%, #059669 100%);
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 3px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+
+        /* Glassmorphism */
+        .glass {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+        }
+
+        .glass-dark {
+            background: rgba(0, 0, 0, 0.75);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+        }
+    </style>
+</head>
+
+<body class="bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 min-h-screen pb-24">
+
+    <!-- Main Container -->
+    <div id="app" class="max-w-md mx-auto min-h-screen">
+
+        <!-- Header -->
+        <header class="glass sticky top-0 z-40 shadow-lg">
+            <div class="p-4">
+                <h1
+                    class="text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent flex items-center gap-2">
+                    <i data-lucide="chef-hat" class="text-purple-600"></i>
+                    DespensIA
+                </h1>
+                <p class="text-sm text-gray-600 mt-1">Tu despensa inteligente</p>
+            </div>
+        </header>
+
+        <!-- Content Area -->
+        <main id="content" class="p-4 pb-20">
+            <!-- Dynamic content loads here -->
+        </main>
+
+        <!-- FAB - Floating Action Button -->
+        <button id="fab"
+            class="fixed bottom-24 right-4 w-16 h-16 bg-gradient-to-r from-purple-600 to-blue-600 rounded-full shadow-2xl flex items-center justify-center text-white hover:scale-110 transition-transform z-50 pulse-animation">
+            <i data-lucide="camera" class="w-8 h-8"></i>
+        </button>
+
+        <!-- Hidden File Input for Camera -->
+        <input type="file" id="cameraInput" accept="image/*" capture="environment" class="hidden">
+
+        <!-- Bottom Navigation -->
+        <nav class="glass fixed bottom-0 left-0 right-0 z-40 shadow-lg">
+            <div class="max-w-md mx-auto flex justify-around items-center py-3">
+                <button class="nav-btn flex flex-col items-center gap-1 px-6 py-2 rounded-lg transition-all"
+                    data-tab="inventory">
+                    <i data-lucide="home" class="w-6 h-6"></i>
+                    <span class="text-xs font-medium">Inventario</span>
+                </button>
+                <button class="nav-btn flex flex-col items-center gap-1 px-6 py-2 rounded-lg transition-all"
+                    data-tab="shopping">
+                    <i data-lucide="shopping-cart" class="w-6 h-6"></i>
+                    <span class="text-xs font-medium">Compras</span>
+                </button>
+                <button class="nav-btn flex flex-col items-center gap-1 px-6 py-2 rounded-lg transition-all"
+                    data-tab="recipes">
+                    <i data-lucide="chef-hat" class="w-6 h-6"></i>
+                    <span class="text-xs font-medium">Recetas</span>
+                </button>
+            </div>
+        </nav>
+
+    </div>
+
+    <!-- Modal Container -->
+    <div id="modalContainer"></div>
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="hidden fixed inset-0 glass-dark z-50 flex items-center justify-center">
+        <div class="bg-white rounded-2xl p-8 shadow-2xl text-center">
+            <div
+                class="animate-spin rounded-full h-16 w-16 border-4 border-purple-600 border-t-transparent mx-auto mb-4">
+            </div>
+            <p class="text-gray-700 font-medium">Procesando...</p>
+        </div>
+    </div>
+
+    <script type="module">
+        // ============================================
+        // CONFIGURATION - ⚠️ REPLACE WITH YOUR KEYS
+        // ============================================
+        const CONFIG = {
+            // Get from: https://aistudio.google.com/app/apikey
+            GEMINI_API_KEY: 'gen-lang-client-0269287881',
+
+            // Get from: https://supabase.com/dashboard (Project Settings > API)
+            SUPABASE_URL: 'https://vdufbikkphirsbsckdyd.supabase.co',
+            SUPABASE_KEY: 'sb_publishable_N0YrI09jEewLbDGDLF3Chw_wb8QBtfj'
+        };
+
+        // ============================================
+        // APP STATE
+        // ============================================
+        const state = {
+            currentTab: 'inventory',
+            inventory: [],
+            shoppingList: [],
+            recipes: []
+        };
+
+        // ============================================
+        // SUPABASE INITIALIZATION
+        // ============================================
+        let supabase = null;
+
+        function initSupabase() {
+            if (CONFIG.SUPABASE_URL.includes('YOUR_')) {
+                console.warn('⚠️ Supabase no configurado. Usando modo local.');
+                return null;
+            }
+
+            try {
+                supabase = window.supabase.createClient(
+                    CONFIG.SUPABASE_URL,
+                    CONFIG.SUPABASE_KEY
+                );
+                return supabase;
+            } catch (error) {
+                console.error('Error al inicializar Supabase:', error);
+                return null;
+            }
+        }
+
+        // ============================================
+        // GEMINI AI INITIALIZATION
+        // ============================================
+        import { GoogleGenerativeAI } from "@google/generative-ai";
+
+        let genAI = null;
+        let model = null;
+
+        function initGemini() {
+            if (CONFIG.GEMINI_API_KEY.includes('YOUR_')) {
+                console.warn('⚠️ Gemini API no configurada.');
+                return false;
+            }
+
+            try {
+                genAI = new GoogleGenerativeAI(CONFIG.GEMINI_API_KEY);
+                model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+                return true;
+            } catch (error) {
+                console.error('Error al inicializar Gemini:', error);
+                return false;
+            }
+        }
+
+        // ============================================
+        // DATABASE OPERATIONS
+        // ============================================
+
+        // Inventory Operations
+        async function loadInventory() {
+            if (!supabase) {
+                // Load from localStorage for demo
+                const stored = localStorage.getItem('despensIA_inventory');
+                state.inventory = stored ? JSON.parse(stored) : [];
+                return state.inventory;
+            }
+
+            try {
+                const { data, error } = await supabase
+                    .from('inventario')
+                    .select('*')
+                    .order('vencimiento', { ascending: true });
+
+                if (error) throw error;
+                state.inventory = data || [];
+                return state.inventory;
+            } catch (error) {
+                console.error('Error cargando inventario:', error);
+                return [];
+            }
+        }
+
+        async function saveInventoryItem(item) {
+            if (!supabase) {
+                // Save to localStorage
+                state.inventory.push(item);
+                localStorage.setItem('despensIA_inventory', JSON.stringify(state.inventory));
+                return item;
+            }
+
+            try {
+                const { data, error } = await supabase
+                    .from('inventario')
+                    .insert([item])
+                    .select()
+                    .single();
+
+                if (error) throw error;
+                state.inventory.push(data);
+                return data;
+            } catch (error) {
+                console.error('Error guardando item:', error);
+                throw error;
+            }
+        }
+
+        async function updateInventoryItem(id, updates) {
+            if (!supabase) {
+                const index = state.inventory.findIndex(i => i.id === id);
+                if (index !== -1) {
+                    state.inventory[index] = { ...state.inventory[index], ...updates };
+                    localStorage.setItem('despensIA_inventory', JSON.stringify(state.inventory));
+                }
+                return;
+            }
+
+            try {
+                const { error } = await supabase
+                    .from('inventario')
+                    .update(updates)
+                    .eq('id', id);
+
+                if (error) throw error;
+
+                const index = state.inventory.findIndex(i => i.id === id);
+                if (index !== -1) {
+                    state.inventory[index] = { ...state.inventory[index], ...updates };
+                }
+            } catch (error) {
+                console.error('Error actualizando item:', error);
+            }
+        }
+
+        async function deleteInventoryItem(id) {
+            if (!supabase) {
+                state.inventory = state.inventory.filter(i => i.id !== id);
+                localStorage.setItem('despensIA_inventory', JSON.stringify(state.inventory));
+                return;
+            }
+
+            try {
+                const { error } = await supabase
+                    .from('inventario')
+                    .delete()
+                    .eq('id', id);
+
+                if (error) throw error;
+                state.inventory = state.inventory.filter(i => i.id !== id);
+            } catch (error) {
+                console.error('Error eliminando item:', error);
+            }
+        }
+
+        // Shopping List Operations
+        async function loadShoppingList() {
+            if (!supabase) {
+                const stored = localStorage.getItem('despensIA_shopping');
+                state.shoppingList = stored ? JSON.parse(stored) : [];
+                return state.shoppingList;
+            }
+
+            try {
+                const { data, error } = await supabase
+                    .from('lista_compras')
+                    .select('*')
+                    .order('creado_at', { ascending: false });
+
+                if (error) throw error;
+                state.shoppingList = data || [];
+                return state.shoppingList;
+            } catch (error) {
+                console.error('Error cargando lista:', error);
+                return [];
+            }
+        }
+
+        async function addShoppingItem(itemName) {
+            const item = {
+                id: Date.now(),
+                item_nombre: itemName,
+                comprado: false,
+                creado_at: new Date().toISOString()
+            };
+
+            if (!supabase) {
+                state.shoppingList.push(item);
+                localStorage.setItem('despensIA_shopping', JSON.stringify(state.shoppingList));
+                return item;
+            }
+
+            try {
+                const { data, error } = await supabase
+                    .from('lista_compras')
+                    .insert([item])
+                    .select()
+                    .single();
+
+                if (error) throw error;
+                state.shoppingList.push(data);
+                return data;
+            } catch (error) {
+                console.error('Error agregando item:', error);
+                throw error;
+            }
+        }
+
+        async function toggleShoppingItem(id) {
+            const item = state.shoppingList.find(i => i.id === id);
+            if (!item) return;
+
+            const newStatus = !item.comprado;
+
+            if (!supabase) {
+                item.comprado = newStatus;
+                localStorage.setItem('despensIA_shopping', JSON.stringify(state.shoppingList));
+                return;
+            }
+
+            try {
+                const { error } = await supabase
+                    .from('lista_compras')
+                    .update({ comprado: newStatus })
+                    .eq('id', id);
+
+                if (error) throw error;
+                item.comprado = newStatus;
+            } catch (error) {
+                console.error('Error actualizando item:', error);
+            }
+        }
+
+        async function deleteShoppingItem(id) {
+            if (!supabase) {
+                state.shoppingList = state.shoppingList.filter(i => i.id !== id);
+                localStorage.setItem('despensIA_shopping', JSON.stringify(state.shoppingList));
+                return;
+            }
+
+            try {
+                const { error } = await supabase
+                    .from('lista_compras')
+                    .delete()
+                    .eq('id', id);
+
+                if (error) throw error;
+                state.shoppingList = state.shoppingList.filter(i => i.id !== id);
+            } catch (error) {
+                console.error('Error eliminando item:', error);
+            }
+        }
+
+        // ============================================
+        // GEMINI AI - PRODUCT SCANNER
+        // ============================================
+
+        async function analyzeProductImage(imageFile) {
+            if (!model) {
+                throw new Error('Gemini AI no configurado');
+            }
+
+            showLoading(true);
+
+            try {
+                // Convert image to base64
+                const imageBase64 = await fileToGenerativePart(imageFile);
+
+                const systemPrompt = `Analiza la imagen de este producto de supermercado (posiblemente de marcas colombianas como Diana, Zenú, Van Camp's, Alpina, Colanta, etc.). 
+
+Extrae y devuelve ÚNICAMENTE un objeto JSON válido con estas propiedades exactas:
+{
+  "nombre_producto": "nombre del producto",
+  "marca": "marca del producto",
+  "cantidad_numerica": número,
+  "unidad": "gr|ml|lb|unid|kg",
+  "categoria": "lacteos|carnes|granos|enlatados|bebidas|otros",
+  "fecha_vencimiento": "YYYY-MM-DD o null si no es visible"
+}
+
+Responde SOLO con el JSON, sin texto adicional.`;
+
+                const result = await model.generateContent([
+                    systemPrompt,
+                    imageBase64
+                ]);
+
+                const response = await result.response;
+                const text = response.text();
+
+                // Extract JSON from response
+                const jsonMatch = text.match(/\{[\s\S]*\}/);
+                if (!jsonMatch) {
+                    throw new Error('No se pudo extraer datos del producto');
+                }
+
+                const productData = JSON.parse(jsonMatch[0]);
+
+                showLoading(false);
+                return productData;
+
+            } catch (error) {
+                showLoading(false);
+                console.error('Error analizando imagen:', error);
+                throw error;
+            }
+        }
+
+        async function fileToGenerativePart(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                    const base64Data = reader.result.split(',')[1];
+                    resolve({
+                        inlineData: {
+                            data: base64Data,
+                            mimeType: file.type
+                        }
+                    });
+                };
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+        }
+
+        // ============================================
+        // UI UTILITIES
+        // ============================================
+
+        function showLoading(show) {
+            const overlay = document.getElementById('loadingOverlay');
+            if (show) {
+                overlay.classList.remove('hidden');
+            } else {
+                overlay.classList.add('hidden');
+            }
+        }
+
+        function calculateExpirationStatus(expirationDate) {
+            if (!expirationDate) return { status: 'unknown', color: 'gray', days: null };
+
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+
+            const expiration = new Date(expirationDate);
+            expiration.setHours(0, 0, 0, 0);
+
+            const diffTime = expiration - today;
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+            if (diffDays < 0) {
+                return { status: 'expired', color: 'red', days: diffDays, label: 'Vencido' };
+            } else if (diffDays <= 3) {
+                return { status: 'critical', color: 'red', days: diffDays, label: 'Urgente' };
+            } else if (diffDays <= 7) {
+                return { status: 'warning', color: 'yellow', days: diffDays, label: 'Próximo' };
+            } else {
+                return { status: 'safe', color: 'green', days: diffDays, label: 'Seguro' };
+            }
+        }
+
+        function formatDate(dateString) {
+            if (!dateString) return 'Sin fecha';
+            const date = new Date(dateString);
+            return date.toLocaleDateString('es-CO', {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric'
+            });
+        }
+
+        // ============================================
+        // UI RENDERING
+        // ============================================
+
+        function renderInventory() {
+            const content = document.getElementById('content');
+
+            if (state.inventory.length === 0) {
+                content.innerHTML = `
+                    <div class="text-center py-16 fade-in">
+                        <i data-lucide="package-open" class="w-24 h-24 mx-auto text-gray-300 mb-4"></i>
+                        <h3 class="text-xl font-semibold text-gray-700 mb-2">Tu despensa está vacía</h3>
+                        <p class="text-gray-500 mb-6">Escanea un producto para comenzar</p>
+                        <button onclick="document.getElementById('cameraInput').click()" 
+                                class="bg-gradient-to-r from-purple-600 to-blue-600 text-white px-6 py-3 rounded-full font-medium shadow-lg hover:scale-105 transition-transform">
+                            <i data-lucide="camera" class="w-5 h-5 inline mr-2"></i>
+                            Escanear Producto
+                        </button>
+                    </div>
+                `;
+                lucide.createIcons();
+                return;
+            }
+
+            // Sort by expiration date
+            const sorted = [...state.inventory].sort((a, b) => {
+                if (!a.vencimiento) return 1;
+                if (!b.vencimiento) return -1;
+                return new Date(a.vencimiento) - new Date(b.vencimiento);
+            });
+
+            content.innerHTML = `
+                <div class="mb-4">
+                    <h2 class="text-lg font-semibold text-gray-800 mb-2 flex items-center gap-2">
+                        <i data-lucide="package" class="w-5 h-5"></i>
+                        Productos en Despensa
+                    </h2>
+                    <p class="text-sm text-gray-600">${state.inventory.length} productos</p>
+                </div>
+                
+                <div class="space-y-3">
+                    ${sorted.map(item => {
+                const exp = calculateExpirationStatus(item.vencimiento);
+                const statusClass = exp.color === 'red' ? 'status-red' :
+                    exp.color === 'yellow' ? 'status-yellow' : 'status-green';
+
+                return `
+                            <div class="bg-white rounded-xl shadow-md overflow-hidden fade-in hover:shadow-xl transition-shadow">
+                                <div class="flex items-center">
+                                    <div class="${statusClass} w-2 h-full"></div>
+                                    <div class="flex-1 p-4">
+                                        <div class="flex justify-between items-start mb-2">
+                                            <div class="flex-1">
+                                                <h3 class="font-semibold text-gray-800">${item.nombre}</h3>
+                                                <p class="text-sm text-gray-600">${item.marca || 'Sin marca'}</p>
+                                            </div>
+                                            <button onclick="window.deleteProduct(${item.id})" 
+                                                    class="text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors">
+                                                <i data-lucide="trash-2" class="w-4 h-4"></i>
+                                            </button>
+                                        </div>
+                                        
+                                        <div class="flex items-center gap-4 text-sm mb-3">
+                                            <div class="flex items-center gap-1">
+                                                <i data-lucide="calendar" class="w-4 h-4 text-gray-400"></i>
+                                                <span class="text-gray-600">${formatDate(item.vencimiento)}</span>
+                                            </div>
+                                            <div class="px-2 py-1 rounded-full text-xs font-medium text-white ${statusClass}">
+                                                ${exp.label}
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="flex items-center justify-between">
+                                            <div class="flex items-center gap-3">
+                                                <button onclick="window.adjustQuantity(${item.id}, -1)" 
+                                                        class="w-8 h-8 bg-gray-100 hover:bg-gray-200 rounded-full flex items-center justify-center transition-colors">
+                                                    <i data-lucide="minus" class="w-4 h-4"></i>
+                                                </button>
+                                                <span class="font-semibold text-gray-800 min-w-[60px] text-center">
+                                                    ${item.cantidad} ${item.unidad}
+                                                </span>
+                                                <button onclick="window.adjustQuantity(${item.id}, 1)" 
+                                                        class="w-8 h-8 bg-purple-100 hover:bg-purple-200 rounded-full flex items-center justify-center transition-colors">
+                                                    <i data-lucide="plus" class="w-4 h-4 text-purple-600"></i>
+                                                </button>
+                                            </div>
+                                            
+                                            <button onclick="window.addToShoppingFromInventory('${item.nombre}')" 
+                                                    class="text-sm text-purple-600 hover:bg-purple-50 px-3 py-1 rounded-lg transition-colors flex items-center gap-1">
+                                                <i data-lucide="shopping-cart" class="w-4 h-4"></i>
+                                                Comprar
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+            }).join('')}
+                </div>
+            `;
+
+            lucide.createIcons();
+        }
+
+        function renderShoppingList() {
+            const content = document.getElementById('content');
+
+            content.innerHTML = `
+                <div class="mb-4">
+                    <h2 class="text-lg font-semibold text-gray-800 mb-2 flex items-center gap-2">
+                        <i data-lucide="shopping-cart" class="w-5 h-5"></i>
+                        Lista de Compras
+                    </h2>
+                    <p class="text-sm text-gray-600">${state.shoppingList.filter(i => !i.comprado).length} pendientes</p>
+                </div>
+                
+                <!-- Add Item Form -->
+                <div class="bg-white rounded-xl shadow-md p-4 mb-4">
+                    <div class="flex gap-2">
+                        <input type="text" 
+                               id="newShoppingItem" 
+                               placeholder="Agregar artículo..."
+                               class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500">
+                        <button onclick="window.addShoppingItemUI()" 
+                                class="bg-gradient-to-r from-purple-600 to-blue-600 text-white px-6 py-2 rounded-lg font-medium hover:scale-105 transition-transform">
+                            <i data-lucide="plus" class="w-5 h-5"></i>
+                        </button>
+                    </div>
+                </div>
+                
+                ${state.shoppingList.length > 0 ? `
+                    <!-- Copy to WhatsApp Button -->
+                    <button onclick="window.copyToWhatsApp()" 
+                            class="w-full bg-green-500 hover:bg-green-600 text-white py-3 rounded-xl font-medium mb-4 flex items-center justify-center gap-2 shadow-lg transition-colors">
+                        <i data-lucide="copy" class="w-5 h-5"></i>
+                        Copiar para WhatsApp
+                    </button>
+                ` : ''}
+                
+                <!-- Shopping Items -->
+                <div class="space-y-2">
+                    ${state.shoppingList.length === 0 ? `
+                        <div class="text-center py-12">
+                            <i data-lucide="clipboard-list" class="w-16 h-16 mx-auto text-gray-300 mb-3"></i>
+                            <p class="text-gray-500">No hay artículos en la lista</p>
+                        </div>
+                    ` : state.shoppingList.map(item => `
+                        <div class="bg-white rounded-lg shadow-sm p-4 flex items-center gap-3 fade-in hover:shadow-md transition-shadow">
+                            <input type="checkbox" 
+                                   ${item.comprado ? 'checked' : ''} 
+                                   onchange="window.toggleShoppingItemUI(${item.id})"
+                                   class="w-5 h-5 text-purple-600 rounded focus:ring-2 focus:ring-purple-500">
+                            <span class="flex-1 ${item.comprado ? 'line-through text-gray-400' : 'text-gray-800'}">
+                                ${item.item_nombre}
+                            </span>
+                            <button onclick="window.deleteShoppingItemUI(${item.id})" 
+                                    class="text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors">
+                                <i data-lucide="trash-2" class="w-4 h-4"></i>
+                            </button>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+
+            lucide.createIcons();
+
+            // Add enter key listener
+            const input = document.getElementById('newShoppingItem');
+            if (input) {
+                input.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') {
+                        window.addShoppingItemUI();
+                    }
+                });
+            }
+        }
+
+        function renderRecipes() {
+            const content = document.getElementById('content');
+
+            // Sample recipes - You can expand this
+            const recipes = [
+                {
+                    id: 1,
+                    name: 'Arroz con Pollo',
+                    ingredients: ['arroz', 'pollo', 'zanahoria', 'arvejas'],
+                    time: '45 min',
+                    difficulty: 'Fácil'
+                },
+                {
+                    id: 2,
+                    name: 'Ajiaco',
+                    ingredients: ['papa', 'pollo', 'maíz', 'guascas'],
+                    time: '90 min',
+                    difficulty: 'Media'
+                },
+                {
+                    id: 3,
+                    name: 'Bandeja Paisa',
+                    ingredients: ['frijol', 'arroz', 'carne', 'chicharrón', 'huevo'],
+                    time: '60 min',
+                    difficulty: 'Media'
+                },
+                {
+                    id: 4,
+                    name: 'Ensalada Fresca',
+                    ingredients: ['lechuga', 'tomate', 'cebolla', 'limón'],
+                    time: '15 min',
+                    difficulty: 'Fácil'
+                }
+            ];
+
+            // Match recipes with inventory
+            const matchedRecipes = recipes.map(recipe => {
+                const availableIngredients = recipe.ingredients.filter(ing =>
+                    state.inventory.some(item =>
+                        item.nombre.toLowerCase().includes(ing.toLowerCase())
+                    )
+                );
+
+                const matchPercentage = (availableIngredients.length / recipe.ingredients.length) * 100;
+
+                // Check if using expiring items
+                const usingExpiringItems = recipe.ingredients.some(ing => {
+                    const item = state.inventory.find(i =>
+                        i.nombre.toLowerCase().includes(ing.toLowerCase())
+                    );
+                    if (!item) return false;
+                    const exp = calculateExpirationStatus(item.vencimiento);
+                    return exp.color === 'red';
+                });
+
+                return {
+                    ...recipe,
+                    matchPercentage,
+                    availableIngredients: availableIngredients.length,
+                    totalIngredients: recipe.ingredients.length,
+                    priority: usingExpiringItems
+                };
+            }).sort((a, b) => {
+                if (a.priority !== b.priority) return b.priority - a.priority;
+                return b.matchPercentage - a.matchPercentage;
+            });
+
+            content.innerHTML = `
+                <div class="mb-4">
+                    <h2 class="text-lg font-semibold text-gray-800 mb-2 flex items-center gap-2">
+                        <i data-lucide="chef-hat" class="w-5 h-5"></i>
+                        Recetas Sugeridas
+                    </h2>
+                    <p class="text-sm text-gray-600">Basadas en tu inventario</p>
+                </div>
+                
+                <div class="space-y-4">
+                    ${matchedRecipes.map(recipe => `
+                        <div class="bg-white rounded-xl shadow-md overflow-hidden fade-in hover:shadow-xl transition-shadow">
+                            ${recipe.priority ? `
+                                <div class="bg-gradient-to-r from-red-500 to-orange-500 text-white px-4 py-2 text-sm font-medium flex items-center gap-2">
+                                    <i data-lucide="alert-triangle" class="w-4 h-4"></i>
+                                    ¡Usa ingredientes próximos a vencer!
+                                </div>
+                            ` : ''}
+                            
+                            <div class="p-4">
+                                <h3 class="text-lg font-semibold text-gray-800 mb-2">${recipe.name}</h3>
+                                
+                                <div class="flex items-center gap-4 text-sm text-gray-600 mb-3">
+                                    <div class="flex items-center gap-1">
+                                        <i data-lucide="clock" class="w-4 h-4"></i>
+                                        ${recipe.time}
+                                    </div>
+                                    <div class="flex items-center gap-1">
+                                        <i data-lucide="bar-chart" class="w-4 h-4"></i>
+                                        ${recipe.difficulty}
+                                    </div>
+                                </div>
+                                
+                                <!-- Match Progress -->
+                                <div class="mb-3">
+                                    <div class="flex justify-between text-sm mb-1">
+                                        <span class="text-gray-600">Ingredientes disponibles</span>
+                                        <span class="font-medium text-purple-600">
+                                            ${recipe.availableIngredients}/${recipe.totalIngredients}
+                                        </span>
+                                    </div>
+                                    <div class="w-full bg-gray-200 rounded-full h-2">
+                                        <div class="bg-gradient-to-r from-purple-600 to-blue-600 h-2 rounded-full transition-all" 
+                                             style="width: ${recipe.matchPercentage}%"></div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Ingredients -->
+                                <div class="flex flex-wrap gap-2">
+                                    ${recipe.ingredients.map(ing => {
+                const hasIngredient = state.inventory.some(item =>
+                    item.nombre.toLowerCase().includes(ing.toLowerCase())
+                );
+                return `
+                                            <span class="px-3 py-1 rounded-full text-xs font-medium ${hasIngredient
+                        ? 'bg-green-100 text-green-700'
+                        : 'bg-gray-100 text-gray-600'
+                    }">
+                                                ${hasIngredient ? '✓' : '○'} ${ing}
+                                            </span>
+                                        `;
+            }).join('')}
+                                </div>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+
+            lucide.createIcons();
+        }
+
+        // ============================================
+        // CAMERA & SCANNER
+        // ============================================
+
+        function showConfirmationModal(productData) {
+            const modal = document.getElementById('modalContainer');
+            modal.innerHTML = `
+                <div class="fixed inset-0 glass-dark z-50 flex items-center justify-center p-4 fade-in">
+                    <div class="bg-white rounded-2xl max-w-md w-full shadow-2xl">
+                        <div class="bg-gradient-to-r from-purple-600 to-blue-600 text-white p-4 rounded-t-2xl">
+                            <h3 class="text-xl font-semibold flex items-center gap-2">
+                                <i data-lucide="check-circle" class="w-6 h-6"></i>
+                                Confirmar Producto
+                            </h3>
+                        </div>
+                        
+                        <form id="confirmForm" class="p-6 space-y-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Nombre del Producto</label>
+                                <input type="text" id="productName" value="${productData.nombre_producto || ''}" 
+                                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500">
+                            </div>
+                            
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Marca</label>
+                                <input type="text" id="productBrand" value="${productData.marca || ''}" 
+                                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500">
+                            </div>
+                            
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Cantidad</label>
+                                    <input type="number" id="productQuantity" value="${productData.cantidad_numerica || 1}" 
+                                           class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Unidad</label>
+                                    <select id="productUnit" 
+                                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500">
+                                        <option value="unid" ${productData.unidad === 'unid' ? 'selected' : ''}>unid</option>
+                                        <option value="gr" ${productData.unidad === 'gr' ? 'selected' : ''}>gr</option>
+                                        <option value="kg" ${productData.unidad === 'kg' ? 'selected' : ''}>kg</option>
+                                        <option value="ml" ${productData.unidad === 'ml' ? 'selected' : ''}>ml</option>
+                                        <option value="lb" ${productData.unidad === 'lb' ? 'selected' : ''}>lb</option>
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Categoría</label>
+                                <select id="productCategory" 
+                                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500">
+                                    <option value="otros" ${productData.categoria === 'otros' ? 'selected' : ''}>Otros</option>
+                                    <option value="lacteos" ${productData.categoria === 'lacteos' ? 'selected' : ''}>Lácteos</option>
+                                    <option value="carnes" ${productData.categoria === 'carnes' ? 'selected' : ''}>Carnes</option>
+                                    <option value="granos" ${productData.categoria === 'granos' ? 'selected' : ''}>Granos</option>
+                                    <option value="enlatados" ${productData.categoria === 'enlatados' ? 'selected' : ''}>Enlatados</option>
+                                    <option value="bebidas" ${productData.categoria === 'bebidas' ? 'selected' : ''}>Bebidas</option>
+                                </select>
+                            </div>
+                            
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Fecha de Vencimiento</label>
+                                <input type="date" id="productExpiration" value="${productData.fecha_vencimiento || ''}" 
+                                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500">
+                            </div>
+                            
+                            <div class="flex gap-3 pt-4">
+                                <button type="button" onclick="window.closeModal()" 
+                                        class="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors">
+                                    Cancelar
+                                </button>
+                                <button type="submit" 
+                                        class="flex-1 px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg hover:scale-105 transition-transform">
+                                    Guardar
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            `;
+
+            lucide.createIcons();
+
+            document.getElementById('confirmForm').addEventListener('submit', async (e) => {
+                e.preventDefault();
+
+                const item = {
+                    id: Date.now(),
+                    nombre: document.getElementById('productName').value,
+                    marca: document.getElementById('productBrand').value,
+                    cantidad: parseFloat(document.getElementById('productQuantity').value),
+                    unidad: document.getElementById('productUnit').value,
+                    categoria: document.getElementById('productCategory').value,
+                    vencimiento: document.getElementById('productExpiration').value || null,
+                    creado_at: new Date().toISOString()
+                };
+
+                try {
+                    await saveInventoryItem(item);
+                    window.closeModal();
+                    switchTab('inventory');
+                    showNotification('✓ Producto agregado exitosamente');
+                } catch (error) {
+                    alert('Error al guardar el producto: ' + error.message);
+                }
+            });
+        }
+
+        window.closeModal = function () {
+            document.getElementById('modalContainer').innerHTML = '';
+        };
+
+        function showNotification(message) {
+            const notification = document.createElement('div');
+            notification.className = 'fixed top-20 left-1/2 transform -translate-x-1/2 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg z-50 fade-in';
+            notification.textContent = message;
+            document.body.appendChild(notification);
+
+            setTimeout(() => {
+                notification.remove();
+            }, 3000);
+        }
+
+        // ============================================
+        // GLOBAL FUNCTIONS (exposed to window)
+        // ============================================
+
+        window.adjustQuantity = async function (id, delta) {
+            const item = state.inventory.find(i => i.id === id);
+            if (!item) return;
+
+            const newQuantity = Math.max(0, item.cantidad + delta);
+            if (newQuantity === 0) {
+                if (confirm('¿Eliminar este producto?')) {
+                    await deleteInventoryItem(id);
+                    renderInventory();
+                }
+            } else {
+                await updateInventoryItem(id, { cantidad: newQuantity });
+                renderInventory();
+            }
+        };
+
+        window.deleteProduct = async function (id) {
+            if (confirm('¿Estás seguro de eliminar este producto?')) {
+                await deleteInventoryItem(id);
+                renderInventory();
+            }
+        };
+
+        window.addToShoppingFromInventory = async function (productName) {
+            await addShoppingItem(productName);
+            showNotification(`✓ "${productName}" agregado a la lista de compras`);
+        };
+
+        window.addShoppingItemUI = async function () {
+            const input = document.getElementById('newShoppingItem');
+            const itemName = input.value.trim();
+
+            if (!itemName) return;
+
+            try {
+                await addShoppingItem(itemName);
+                input.value = '';
+                renderShoppingList();
+            } catch (error) {
+                alert('Error al agregar artículo: ' + error.message);
+            }
+        };
+
+        window.toggleShoppingItemUI = async function (id) {
+            await toggleShoppingItem(id);
+            renderShoppingList();
+        };
+
+        window.deleteShoppingItemUI = async function (id) {
+            await deleteShoppingItem(id);
+            renderShoppingList();
+        };
+
+        window.copyToWhatsApp = function () {
+            const pendingItems = state.shoppingList.filter(i => !i.comprado);
+
+            if (pendingItems.length === 0) {
+                alert('No hay artículos pendientes para copiar');
+                return;
+            }
+
+            const header = '🛒 *LISTA DE COMPRAS*\n\n';
+            const items = pendingItems.map(item => `• ${item.item_nombre}`).join('\n');
+            const footer = `\n\n_Total: ${pendingItems.length} artículos_`;
+
+            const text = header + items + footer;
+
+            navigator.clipboard.writeText(text).then(() => {
+                showNotification('✓ Lista copiada al portapapeles');
+            }).catch(err => {
+                alert('Error al copiar: ' + err.message);
+            });
+        };
+
+        // ============================================
+        // NAVIGATION
+        // ============================================
+
+        function switchTab(tab) {
+            state.currentTab = tab;
+
+            // Update navigation buttons
+            document.querySelectorAll('.nav-btn').forEach(btn => {
+                if (btn.dataset.tab === tab) {
+                    btn.classList.add('bg-purple-100', 'text-purple-600');
+                } else {
+                    btn.classList.remove('bg-purple-100', 'text-purple-600');
+                }
+            });
+
+            // Render content
+            switch (tab) {
+                case 'inventory':
+                    renderInventory();
+                    break;
+                case 'shopping':
+                    renderShoppingList();
+                    break;
+                case 'recipes':
+                    renderRecipes();
+                    break;
+            }
+        }
+
+        // ============================================
+        // EVENT LISTENERS
+        // ============================================
+
+        document.querySelectorAll('.nav-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                switchTab(btn.dataset.tab);
+            });
+        });
+
+        document.getElementById('fab').addEventListener('click', () => {
+            document.getElementById('cameraInput').click();
+        });
+
+        document.getElementById('cameraInput').addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            if (!model) {
+                alert('⚠️ Gemini API no configurada. Por favor, agrega tu API key en el código.');
+                return;
+            }
+
+            try {
+                const productData = await analyzeProductImage(file);
+                showConfirmationModal(productData);
+            } catch (error) {
+                alert('Error al analizar la imagen: ' + error.message);
+            }
+
+            // Reset input
+            e.target.value = '';
+        });
+
+        // ============================================
+        // INITIALIZATION
+        // ============================================
+
+        async function init() {
+            // Initialize services
+            initSupabase();
+            initGemini();
+
+            // Load data
+            await Promise.all([
+                loadInventory(),
+                loadShoppingList()
+            ]);
+
+            // Render initial view
+            switchTab('inventory');
+
+            // Initialize icons
+            lucide.createIcons();
+        }
+
+        // Start app
+        init();
+
+    </script>
+</body>
+
+</html>
