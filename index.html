@@ -253,39 +253,48 @@
             try {
                 genAI = new GoogleGenerativeAI(CONFIG.GEMINI_API_KEY);
 
-                // List available models
-                console.log('🔍 Verificando modelos disponibles...');
-                try {
-                    const models = await genAI.listModels();
-                    console.log('✅ Modelos disponibles:', models);
+                // Try models in order of preference
+                // Note: JavaScript SDK doesn't have listModels(), so we try each one
+                const modelsToTry = [
+                    'gemini-2.0-flash-exp',
+                    'gemini-exp-1206',
+                    'gemini-2.0-flash',
+                    'gemini-1.5-flash',
+                    'gemini-1.5-pro',
+                    'gemini-pro',
+                ];
 
-                    // Find a suitable vision model
-                    const visionModels = ['gemini-1.5-pro-latest', 'gemini-1.5-flash-latest', 'gemini-pro-vision', 'gemini-1.5-pro', 'gemini-1.5-flash'];
+                console.log('🔍 Probando modelos disponibles...');
 
-                    let selectedModel = null;
-                    for (const modelName of visionModels) {
-                        const found = models.find(m => m.name.includes(modelName) || m.name === `models/${modelName}`);
-                        if (found) {
-                            selectedModel = modelName;
-                            console.log(`✅ Usando modelo: ${selectedModel}`);
-                            break;
-                        }
+                for (const modelName of modelsToTry) {
+                    try {
+                        console.log(`Intentando: ${modelName}...`);
+                        const testModel = genAI.getGenerativeModel({ model: modelName });
+
+                        // Test with a minimal prompt to verify it works
+                        const testResult = await testModel.generateContent("test");
+                        await testResult.response;
+
+                        // If we get here, the model works!
+                        model = testModel;
+                        console.log(`✅ Modelo funcionando: ${modelName}`);
+                        return true;
+
+                    } catch (testError) {
+                        console.log(`❌ ${modelName}: ${testError.message.substring(0, 50)}...`);
+                        continue;
                     }
-
-                    if (!selectedModel) {
-                        // Fallback to first available model
-                        selectedModel = 'gemini-pro-vision';
-                        console.warn('⚠️ Usando modelo por defecto:', selectedModel);
-                    }
-
-                    model = genAI.getGenerativeModel({ model: selectedModel });
-
-                } catch (listError) {
-                    console.warn('No se pudo listar modelos, usando gemini-pro-vision:', listError);
-                    model = genAI.getGenerativeModel({ model: "gemini-pro-vision" });
                 }
 
-                return true;
+                // If no model worked
+                console.error('❌ Ningún modelo disponible con esta API key');
+                alert('⚠️ Error: No se pudo encontrar un modelo Gemini compatible.\n\n' +
+                    'Posibles soluciones:\n' +
+                    '1. Verifica que tu API key sea válida\n' +
+                    '2. Crea una nueva API key en https://aistudio.google.com/app/apikey\n' +
+                    '3. Asegúrate de que la API key tenga permisos para Gemini');
+                return false;
+
             } catch (error) {
                 console.error('Error al inicializar Gemini:', error);
                 return false;
