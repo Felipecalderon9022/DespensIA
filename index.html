@@ -682,10 +682,16 @@ Responde SOLO con el JSON, sin texto adicional.`;
                                                 <h3 class="font-semibold text-gray-800">${item.nombre}</h3>
                                                 <p class="text-sm text-gray-600">${item.marca || 'Sin marca'}</p>
                                             </div>
-                                            <button onclick="window.deleteProduct(${item.id})" 
-                                                    class="text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors">
-                                                <i data-lucide="trash-2" class="w-4 h-4"></i>
-                                            </button>
+                                            <div class="flex gap-2">
+                                                <button onclick="window.editProduct(${item.id})" 
+                                                        class="text-blue-500 hover:bg-blue-50 p-2 rounded-lg transition-colors">
+                                                    <i data-lucide="pencil" class="w-4 h-4"></i>
+                                                </button>
+                                                <button onclick="window.deleteProduct(${item.id})" 
+                                                        class="text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors">
+                                                    <i data-lucide="trash-2" class="w-4 h-4"></i>
+                                                </button>
+                                            </div>
                                         </div>
                                         
                                         <div class="flex items-center gap-4 text-sm mb-3">
@@ -1032,7 +1038,7 @@ Responde SOLO con el JSON, sin texto adicional.`;
 
                     // Analyze with Gemini
                     const productData = await analyzeProductImage(file);
-                    showConfirmationModal(productData);
+                    showProductFormModal(productData, false);
 
                 } catch (error) {
                     alert('Error al analizar la imagen: ' + error.message);
@@ -1040,22 +1046,26 @@ Responde SOLO con el JSON, sin texto adicional.`;
             }, 'image/jpeg', 0.95);
         }
 
-        function showConfirmationModal(productData) {
+        function showProductFormModal(productData, isEditing = false) {
             const modal = document.getElementById('modalContainer');
+            const title = isEditing ? 'Editar Producto' : 'Confirmar Producto';
+            const icon = isEditing ? 'pencil' : 'check-circle';
+            const btnText = isEditing ? 'Actualizar' : 'Guardar';
+
             modal.innerHTML = `
                 <div class="fixed inset-0 glass-dark z-50 flex items-center justify-center p-4 fade-in">
                     <div class="bg-white rounded-2xl max-w-md w-full shadow-2xl">
                         <div class="bg-gradient-to-r from-purple-600 to-blue-600 text-white p-4 rounded-t-2xl">
                             <h3 class="text-xl font-semibold flex items-center gap-2">
-                                <i data-lucide="check-circle" class="w-6 h-6"></i>
-                                Confirmar Producto
+                                <i data-lucide="${icon}" class="w-6 h-6"></i>
+                                ${title}
                             </h3>
                         </div>
                         
                         <form id="confirmForm" class="p-6 space-y-4">
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-1">Nombre del Producto</label>
-                                <input type="text" id="productName" value="${productData.nombre_producto || ''}" 
+                                <input type="text" id="productName" value="${productData.nombre || productData.nombre_producto || ''}" 
                                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500">
                             </div>
                             
@@ -1068,7 +1078,7 @@ Responde SOLO con el JSON, sin texto adicional.`;
                             <div class="grid grid-cols-2 gap-3">
                                 <div>
                                     <label class="block text-sm font-medium text-gray-700 mb-1">Cantidad</label>
-                                    <input type="number" id="productQuantity" value="${productData.cantidad_numerica || 1}" 
+                                    <input type="number" id="productQuantity" value="${productData.cantidad || productData.cantidad_numerica || 1}" 
                                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500">
                                 </div>
                                 <div>
@@ -1094,12 +1104,15 @@ Responde SOLO con el JSON, sin texto adicional.`;
                                     <option value="granos" ${productData.categoria === 'granos' ? 'selected' : ''}>Granos</option>
                                     <option value="enlatados" ${productData.categoria === 'enlatados' ? 'selected' : ''}>Enlatados</option>
                                     <option value="bebidas" ${productData.categoria === 'bebidas' ? 'selected' : ''}>Bebidas</option>
+                                    <option value="frutas" ${productData.categoria === 'frutas' ? 'selected' : ''}>Frutas</option>
+                                    <option value="verduras" ${productData.categoria === 'verduras' ? 'selected' : ''}>Verduras</option>
+                                    <option value="salsas" ${productData.categoria === 'salsas' ? 'selected' : ''}>Salsas</option>
                                 </select>
                             </div>
                             
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-1">Fecha de Vencimiento</label>
-                                <input type="date" id="productExpiration" value="${productData.fecha_vencimiento || ''}" 
+                                <input type="date" id="productExpiration" value="${productData.vencimiento || productData.fecha_vencimiento || ''}" 
                                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500">
                             </div>
                             
@@ -1110,7 +1123,7 @@ Responde SOLO con el JSON, sin texto adicional.`;
                                 </button>
                                 <button type="submit" 
                                         class="flex-1 px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg hover:scale-105 transition-transform">
-                                    Guardar
+                                    ${btnText}
                                 </button>
                             </div>
                         </form>
@@ -1124,23 +1137,33 @@ Responde SOLO con el JSON, sin texto adicional.`;
                 e.preventDefault();
 
                 const item = {
-                    id: Date.now(),
+                    id: isEditing ? productData.id : Date.now(),
                     nombre: document.getElementById('productName').value,
                     marca: document.getElementById('productBrand').value,
                     cantidad: parseFloat(document.getElementById('productQuantity').value),
                     unidad: document.getElementById('productUnit').value,
                     categoria: document.getElementById('productCategory').value,
                     vencimiento: document.getElementById('productExpiration').value || null,
-                    creado_at: new Date().toISOString()
+                    creado_at: isEditing ? productData.creado_at : new Date().toISOString()
                 };
 
                 try {
-                    await saveInventoryItem(item);
+                    if (isEditing) {
+                        await updateInventoryItem(item.id, item);
+                        showNotification('✓ Producto actualizado');
+                    } else {
+                        await saveInventoryItem(item);
+                        showNotification('✓ Producto agregado');
+                    }
+
                     window.closeModal();
-                    switchTab('inventory');
-                    showNotification('✓ Producto agregado exitosamente');
+                    // Just reload inventory tab to refresh data
+                    loadInventory().then(() => {
+                        if (state.currentTab === 'inventory') renderInventory();
+                    });
+
                 } catch (error) {
-                    alert('Error al guardar el producto: ' + error.message);
+                    alert('Error al guardar: ' + error.message);
                 }
             });
         }
@@ -1184,6 +1207,13 @@ Responde SOLO con el JSON, sin texto adicional.`;
             if (confirm('¿Estás seguro de eliminar este producto?')) {
                 await deleteInventoryItem(id);
                 renderInventory();
+            }
+        };
+
+        window.editProduct = function (id) {
+            const item = state.inventory.find(i => i.id === id);
+            if (item) {
+                showProductFormModal(item, true);
             }
         };
 
