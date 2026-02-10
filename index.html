@@ -244,7 +244,7 @@
         let genAI = null;
         let model = null;
 
-        function initGemini() {
+        async function initGemini() {
             if (CONFIG.GEMINI_API_KEY.includes('YOUR_')) {
                 console.warn('⚠️ Gemini API no configurada.');
                 return false;
@@ -252,8 +252,39 @@
 
             try {
                 genAI = new GoogleGenerativeAI(CONFIG.GEMINI_API_KEY);
-                // Using gemini-1.5-pro for better compatibility with vision tasks
-                model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
+
+                // List available models
+                console.log('🔍 Verificando modelos disponibles...');
+                try {
+                    const models = await genAI.listModels();
+                    console.log('✅ Modelos disponibles:', models);
+
+                    // Find a suitable vision model
+                    const visionModels = ['gemini-1.5-pro-latest', 'gemini-1.5-flash-latest', 'gemini-pro-vision', 'gemini-1.5-pro', 'gemini-1.5-flash'];
+
+                    let selectedModel = null;
+                    for (const modelName of visionModels) {
+                        const found = models.find(m => m.name.includes(modelName) || m.name === `models/${modelName}`);
+                        if (found) {
+                            selectedModel = modelName;
+                            console.log(`✅ Usando modelo: ${selectedModel}`);
+                            break;
+                        }
+                    }
+
+                    if (!selectedModel) {
+                        // Fallback to first available model
+                        selectedModel = 'gemini-pro-vision';
+                        console.warn('⚠️ Usando modelo por defecto:', selectedModel);
+                    }
+
+                    model = genAI.getGenerativeModel({ model: selectedModel });
+
+                } catch (listError) {
+                    console.warn('No se pudo listar modelos, usando gemini-pro-vision:', listError);
+                    model = genAI.getGenerativeModel({ model: "gemini-pro-vision" });
+                }
+
                 return true;
             } catch (error) {
                 console.error('Error al inicializar Gemini:', error);
@@ -1230,7 +1261,7 @@ Responde SOLO con el JSON, sin texto adicional.`;
         async function init() {
             // Initialize services
             initSupabase();
-            initGemini();
+            await initGemini();
 
             // Load data
             await Promise.all([
