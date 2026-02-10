@@ -101,6 +101,10 @@
             backdrop-filter: blur(10px);
             -webkit-backdrop-filter: blur(10px);
         }
+
+        .safe-pb {
+            padding-bottom: env(safe-area-inset-bottom, 20px);
+        }
     </style>
 </head>
 
@@ -127,29 +131,35 @@
         </main>
 
         <!-- FAB - Floating Action Button -->
+        <!-- FAB - Floating Action Button -->
         <button id="fab"
-            class="fixed bottom-24 right-4 w-16 h-16 bg-gradient-to-r from-purple-600 to-blue-600 rounded-full shadow-2xl flex items-center justify-center text-white hover:scale-110 transition-transform z-50 pulse-animation">
+            class="fixed bottom-24 right-4 w-16 h-16 bg-gradient-to-r from-purple-600 to-blue-600 rounded-full shadow-2xl flex items-center justify-center text-white hover:scale-110 transition-transform z-40 pulse-animation"
+            style="bottom: calc(6rem + env(safe-area-inset-bottom));">
             <i data-lucide="camera" class="w-8 h-8"></i>
         </button>
 
-        <!-- Camera Modal (hidden by default) -->
-        <div id="cameraModal" class="hidden fixed inset-0 glass-dark z-50 flex flex-col">
-            <div class="flex-1 relative">
-                <video id="cameraVideo" class="w-full h-full object-cover" autoplay playsinline></video>
+        <!-- Camera Modal -->
+        <div id="cameraModal" class="hidden fixed inset-0 z-50 bg-black flex flex-col h-[100dvh]">
+            <!-- Video Area -->
+            <div class="flex-1 relative overflow-hidden bg-black">
+                <video id="cameraVideo" class="w-full h-full object-cover" autoplay playsinline
+                    webkit-playsinline></video>
                 <div
-                    class="absolute top-4 left-1/2 transform -translate-x-1/2 bg-white px-4 py-2 rounded-full shadow-lg">
-                    <p class="text-sm font-medium text-gray-700">Enfoca el producto</p>
+                    class="absolute top-8 left-1/2 transform -translate-x-1/2 bg-white/90 backdrop-blur px-4 py-2 rounded-full shadow-lg z-10">
+                    <p class="text-sm font-medium text-gray-800">Enfoca el producto</p>
                 </div>
             </div>
-            <div class="p-6 glass flex justify-center gap-4">
+
+            <!-- Controls Area (Fixed at bottom) -->
+            <div class="bg-black/80 backdrop-blur-md p-6 pb-8 flex justify-center gap-6 shrink-0 safe-pb">
                 <button id="closeCameraBtn"
-                    class="px-6 py-3 bg-gray-500 hover:bg-gray-600 text-white rounded-full font-medium transition-colors">
-                    Cancelar
+                    class="w-14 h-14 rounded-full bg-gray-600 flex items-center justify-center text-white hover:bg-gray-500 transition-colors">
+                    <i data-lucide="x" class="w-6 h-6"></i>
                 </button>
+
                 <button id="captureBtn"
-                    class="px-8 py-3 bg-gradient-to-r from-purple-600 to-blue-600 hover:scale-105 text-white rounded-full font-medium shadow-lg transition-transform flex items-center gap-2">
-                    <i data-lucide="camera" class="w-5 h-5"></i>
-                    Capturar
+                    class="w-20 h-20 rounded-full border-4 border-white flex items-center justify-center bg-transparent hover:bg-white/20 transition-all relative">
+                    <div class="w-16 h-16 rounded-full bg-white"></div>
                 </button>
             </div>
         </div>
