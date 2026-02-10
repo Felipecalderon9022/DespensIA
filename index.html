@@ -132,8 +132,27 @@
             <i data-lucide="camera" class="w-8 h-8"></i>
         </button>
 
-        <!-- Hidden File Input for Camera -->
-        <input type="file" id="cameraInput" accept="image/*" capture="environment" class="hidden">
+        <!-- Camera Modal (hidden by default) -->
+        <div id="cameraModal" class="hidden fixed inset-0 glass-dark z-50 flex flex-col">
+            <div class="flex-1 relative">
+                <video id="cameraVideo" class="w-full h-full object-cover" autoplay playsinline></video>
+                <div
+                    class="absolute top-4 left-1/2 transform -translate-x-1/2 bg-white px-4 py-2 rounded-full shadow-lg">
+                    <p class="text-sm font-medium text-gray-700">Enfoca el producto</p>
+                </div>
+            </div>
+            <div class="p-6 glass flex justify-center gap-4">
+                <button id="closeCameraBtn"
+                    class="px-6 py-3 bg-gray-500 hover:bg-gray-600 text-white rounded-full font-medium transition-colors">
+                    Cancelar
+                </button>
+                <button id="captureBtn"
+                    class="px-8 py-3 bg-gradient-to-r from-purple-600 to-blue-600 hover:scale-105 text-white rounded-full font-medium shadow-lg transition-transform flex items-center gap-2">
+                    <i data-lucide="camera" class="w-5 h-5"></i>
+                    Capturar
+                </button>
+            </div>
+        </div>
 
         <!-- Bottom Navigation -->
         <nav class="glass fixed bottom-0 left-0 right-0 z-40 shadow-lg">
@@ -569,7 +588,7 @@ Responde SOLO con el JSON, sin texto adicional.`;
                         <i data-lucide="package-open" class="w-24 h-24 mx-auto text-gray-300 mb-4"></i>
                         <h3 class="text-xl font-semibold text-gray-700 mb-2">Tu despensa está vacía</h3>
                         <p class="text-gray-500 mb-6">Escanea un producto para comenzar</p>
-                        <button onclick="document.getElementById('cameraInput').click()" 
+                        <button onclick="openCamera()" 
                                 class="bg-gradient-to-r from-purple-600 to-blue-600 text-white px-6 py-3 rounded-full font-medium shadow-lg hover:scale-105 transition-transform">
                             <i data-lucide="camera" class="w-5 h-5 inline mr-2"></i>
                             Escanear Producto
@@ -876,6 +895,82 @@ Responde SOLO con el JSON, sin texto adicional.`;
         // CAMERA & SCANNER
         // ============================================
 
+        let cameraStream = null;
+
+        async function openCamera() {
+            const modal = document.getElementById('cameraModal');
+            const video = document.getElementById('cameraVideo');
+
+            try {
+                // Request camera access
+                cameraStream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: 'environment', // Use back camera on mobile
+                        width: { ideal: 1920 },
+                        height: { ideal: 1080 }
+                    }
+                });
+
+                video.srcObject = cameraStream;
+                modal.classList.remove('hidden');
+                lucide.createIcons();
+
+            } catch (error) {
+                console.error('Error al acceder a la cámara:', error);
+                alert('❌ No se pudo acceder a la cámara. Asegúrate de dar permisos en la configuración del navegador.');
+            }
+        }
+
+        function closeCamera() {
+            const modal = document.getElementById('cameraModal');
+            const video = document.getElementById('cameraVideo');
+
+            // Stop camera stream
+            if (cameraStream) {
+                cameraStream.getTracks().forEach(track => track.stop());
+                cameraStream = null;
+            }
+
+            video.srcObject = null;
+            modal.classList.add('hidden');
+        }
+
+        async function capturePhoto() {
+            if (!model) {
+                alert('⚠️ Gemini API no configurada. Por favor, agrega tu API key en el código.');
+                closeCamera();
+                return;
+            }
+
+            const video = document.getElementById('cameraVideo');
+            const canvas = document.createElement('canvas');
+
+            // Set canvas size to video size
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+
+            // Draw video frame to canvas
+            const context = canvas.getContext('2d');
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            // Convert canvas to blob
+            canvas.toBlob(async (blob) => {
+                closeCamera();
+
+                try {
+                    // Create File object from blob
+                    const file = new File([blob], 'photo.jpg', { type: 'image/jpeg' });
+
+                    // Analyze with Gemini
+                    const productData = await analyzeProductImage(file);
+                    showConfirmationModal(productData);
+
+                } catch (error) {
+                    alert('Error al analizar la imagen: ' + error.message);
+                }
+            }, 'image/jpeg', 0.95);
+        }
+
         function showConfirmationModal(productData) {
             const modal = document.getElementById('modalContainer');
             modal.innerHTML = `
@@ -1115,28 +1210,17 @@ Responde SOLO con el JSON, sin texto adicional.`;
         });
 
         document.getElementById('fab').addEventListener('click', () => {
-            document.getElementById('cameraInput').click();
+            openCamera();
         });
 
-        document.getElementById('cameraInput').addEventListener('change', async (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
-
-            if (!model) {
-                alert('⚠️ Gemini API no configurada. Por favor, agrega tu API key en el código.');
-                return;
-            }
-
-            try {
-                const productData = await analyzeProductImage(file);
-                showConfirmationModal(productData);
-            } catch (error) {
-                alert('Error al analizar la imagen: ' + error.message);
-            }
-
-            // Reset input
-            e.target.value = '';
+        document.getElementById('closeCameraBtn').addEventListener('click', () => {
+            closeCamera();
         });
+
+        document.getElementById('captureBtn').addEventListener('click', () => {
+            capturePhoto();
+        });
+
 
         // ============================================
         // INITIALIZATION
