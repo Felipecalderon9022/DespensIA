@@ -153,9 +153,9 @@ Desarrollado con ❤️ usando:
 
 ## 📞 Contacto
 
-**Tu Nombre** - [@tu_twitter](https://twitter.com/tu_twitter)
+Andres Calderon
 
-Proyecto Link: [https://github.com/TU_USUARIO/despensIA](https://github.com/TU_USUARIO/despensIA)
+Proyecto Link: [[https://github.com/TU_USUARIO/despensIA](https://github.com/TU_USUARIO/despensIA)](https://felipecalderon9022.github.io/DespensIA/)
 
 ---
 
