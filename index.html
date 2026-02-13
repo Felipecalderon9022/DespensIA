@@ -224,7 +224,10 @@
             currentTab: 'inventory',
             inventory: [],
             shoppingList: [],
-            recipes: []
+            recipes: [],
+            inventory_mode: 'despensa', // 'despensa' or 'aseo'
+            inventorySearch: '',
+            inventorySort: 'vencimiento' // 'vencimiento', 'name', 'category'
         };
 
         // ============================================
@@ -368,8 +371,11 @@
         }
 
         async function updateInventoryItem(id, updates) {
+            // Ensure ID is matched correctly regardless of type (string/number)
+            const searchId = id.toString();
+
             if (!supabase) {
-                const index = state.inventory.findIndex(i => i.id === id);
+                const index = state.inventory.findIndex(i => i.id.toString() === searchId);
                 if (index !== -1) {
                     state.inventory[index] = { ...state.inventory[index], ...updates };
                     localStorage.setItem('despensIA_inventory', JSON.stringify(state.inventory));
@@ -378,19 +384,23 @@
             }
 
             try {
+                // Don't include the ID in the updates object if it's there
+                const { id: _, ...cleanUpdates } = updates;
+
                 const { error } = await supabase
                     .from('inventario')
-                    .update(updates)
+                    .update(cleanUpdates)
                     .eq('id', id);
 
                 if (error) throw error;
 
-                const index = state.inventory.findIndex(i => i.id === id);
+                const index = state.inventory.findIndex(i => i.id.toString() === searchId);
                 if (index !== -1) {
-                    state.inventory[index] = { ...state.inventory[index], ...updates };
+                    state.inventory[index] = { ...state.inventory[index], ...cleanUpdates };
                 }
             } catch (error) {
                 console.error('Error actualizando item:', error);
+                throw error; // Rethrow to handle in the UI
             }
         }
 
@@ -437,11 +447,12 @@
             }
         }
 
-        async function addShoppingItem(itemName) {
+        async function addShoppingItem(itemName, metadata = null) {
             const item = {
                 id: Date.now(),
                 item_nombre: itemName,
                 comprado: false,
+                metadata: metadata, // Store full product data if available
                 creado_at: new Date().toISOString()
             };
 
@@ -472,6 +483,21 @@
             if (!item) return;
 
             const newStatus = !item.comprado;
+
+            // If purchased and has metadata, auto-return to inventory
+            if (newStatus && item.metadata) {
+                const confirmReturn = confirm(`¿Deseas devolver "${item.item_nombre}" al inventario automáticamente? (Se reiniciará al 100%)`);
+                if (confirmReturn) {
+                    const inventoryItem = {
+                        ...item.metadata,
+                        id: Date.now(),
+                        nivel: 100,
+                        creado_at: new Date().toISOString()
+                    };
+                    await saveInventoryItem(inventoryItem);
+                    showNotification('✓ Producto devuelto al inventario');
+                }
+            }
 
             if (!supabase) {
                 item.comprado = newStatus;
@@ -637,8 +663,46 @@ Responde SOLO con el JSON, sin texto adicional.`;
         function renderInventory() {
             const content = document.getElementById('content');
 
+            // Header UI (Search, Filter, Mode Switch)
+            let headerHtml = `
+                <div class="mb-6 space-y-4">
+                    <!-- Mode Switch -->
+                    <div class="flex bg-gray-100 p-1 rounded-xl shadow-inner">
+                        <button onclick="window.setInventoryMode('despensa')" 
+                                class="flex-1 py-2 px-4 rounded-lg text-sm font-bold transition-all flex items-center justify-center gap-2 ${state.inventory_mode === 'despensa' ? 'bg-white shadow-md text-purple-600' : 'text-gray-500'}">
+                            <i data-lucide="utensils" class="w-4 h-4"></i>
+                            Despensa
+                        </button>
+                        <button onclick="window.setInventoryMode('aseo')" 
+                                class="flex-1 py-2 px-4 rounded-lg text-sm font-bold transition-all flex items-center justify-center gap-2 ${state.inventory_mode === 'aseo' ? 'bg-white shadow-md text-green-600' : 'text-gray-500'}">
+                            <i data-lucide="sparkles" class="w-4 h-4"></i>
+                            Aseo
+                        </button>
+                    </div>
+
+                    <!-- Search & Sort -->
+                    <div class="flex gap-2">
+                        <div class="relative flex-1">
+                            <i data-lucide="search" class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400"></i>
+                            <input type="text" 
+                                   id="inventorySearchInput" 
+                                   placeholder="Buscar productos..." 
+                                   value="${state.inventorySearch}"
+                                   oninput="window.handleInventorySearch(this.value)"
+                                   class="w-full pl-10 pr-4 py-2 bg-white border border-gray-200 rounded-xl focus:ring-2 ${state.inventory_mode === 'aseo' ? 'focus:ring-green-500' : 'focus:ring-purple-500'} outline-none text-sm shadow-sm transition-all">
+                        </div>
+                        <select onchange="window.setInventorySort(this.value)" 
+                                class="bg-white border border-gray-200 rounded-xl px-3 py-2 text-xs font-medium outline-none shadow-sm cursor-pointer">
+                            <option value="vencimiento" ${state.inventorySort === 'vencimiento' ? 'selected' : ''}>⏳ Vencimiento</option>
+                            <option value="name" ${state.inventorySort === 'name' ? 'selected' : ''}>🔤 Nombre</option>
+                            <option value="category" ${state.inventorySort === 'category' ? 'selected' : ''}>🏷️ Categoría</option>
+                        </select>
+                    </div>
+                </div>
+            `;
+
             if (state.inventory.length === 0) {
-                content.innerHTML = `
+                content.innerHTML = headerHtml + `
                     <div class="text-center py-16 fade-in">
                         <i data-lucide="package-open" class="w-24 h-24 mx-auto text-gray-300 mb-4"></i>
                         <h3 class="text-xl font-semibold text-gray-700 mb-2">Tu despensa está vacía</h3>
@@ -654,86 +718,152 @@ Responde SOLO con el JSON, sin texto adicional.`;
                 return;
             }
 
-            // Sort by expiration date
-            const sorted = [...state.inventory].sort((a, b) => {
-                if (!a.vencimiento) return 1;
-                if (!b.vencimiento) return -1;
-                return new Date(a.vencimiento) - new Date(b.vencimiento);
+            // Filter by Mode & Search
+            let filtered = state.inventory.filter(item => {
+                const matchesMode = item.inventory_mode === state.inventory_mode || (!item.inventory_mode && state.inventory_mode === 'despensa');
+                const matchesSearch = item.nombre.toLowerCase().includes(state.inventorySearch.toLowerCase()) ||
+                    (item.marca && item.marca.toLowerCase().includes(state.inventorySearch.toLowerCase()));
+                return matchesMode && matchesSearch;
             });
 
-            content.innerHTML = `
-                <div class="mb-4">
-                    <h2 class="text-lg font-semibold text-gray-800 mb-2 flex items-center gap-2">
-                        <i data-lucide="package" class="w-5 h-5"></i>
-                        Productos en Despensa
-                    </h2>
-                    <p class="text-sm text-gray-600">${state.inventory.length} productos</p>
-                </div>
-                
-                <div class="space-y-3">
-                    ${sorted.map(item => {
+            // Sort
+            filtered.sort((a, b) => {
+                if (state.inventorySort === 'vencimiento') {
+                    if (!a.vencimiento) return 1;
+                    if (!b.vencimiento) return -1;
+                    return new Date(a.vencimiento) - new Date(b.vencimiento);
+                } else if (state.inventorySort === 'name') {
+                    return a.nombre.localeCompare(b.nombre);
+                } else {
+                    return (a.categoria || '').localeCompare(b.categoria || '');
+                }
+            });
+
+            // Update Header/Icon based on mode
+            const headerIcon = document.querySelector('header i[data-lucide]');
+            const headerTitle = document.querySelector('header h1');
+            if (headerIcon && headerTitle) {
+                if (state.inventory_mode === 'aseo') {
+                    headerIcon.setAttribute('data-lucide', 'sparkles');
+                    headerIcon.classList.remove('text-purple-600');
+                    headerIcon.classList.add('text-green-600');
+                    headerTitle.classList.remove('from-blue-600', 'to-purple-600');
+                    headerTitle.classList.add('from-green-600', 'to-teal-600');
+                } else {
+                    headerIcon.setAttribute('data-lucide', 'chef-hat');
+                    headerIcon.classList.remove('text-green-600');
+                    headerIcon.classList.add('text-purple-600');
+                    headerTitle.classList.remove('from-green-600', 'to-teal-600');
+                    headerTitle.classList.add('from-blue-600', 'to-purple-600');
+                }
+                lucide.createIcons();
+            }
+
+            // Update FAB color
+            const fab = document.getElementById('fab');
+            if (fab) {
+                if (state.inventory_mode === 'aseo') {
+                    fab.classList.remove('from-purple-600', 'to-blue-600');
+                    fab.classList.add('from-green-600', 'to-teal-600');
+                } else {
+                    fab.classList.remove('from-green-600', 'to-teal-600');
+                    fab.classList.add('from-purple-600', 'to-blue-600');
+                }
+            }
+
+            content.innerHTML = headerHtml + `
+                <div class="space-y-3 pb-24">
+                    ${filtered.map(item => {
                 const exp = calculateExpirationStatus(item.vencimiento);
-                const statusClass = exp.color === 'red' ? 'status-red' :
-                    exp.color === 'yellow' ? 'status-yellow' : 'status-green';
+                const statusColor = exp.color === 'red' ? '#ef4444' :
+                    exp.color === 'yellow' ? '#f59e0b' : '#10b981';
+
+                const level = item.nivel ?? 100;
+                const accentColorClass = state.inventory_mode === 'aseo' ? 'bg-green-500' : 'bg-purple-600';
+
+                // Unified Label Contrast
+                let labelClasses = '';
+                let labelStyles = '';
+                if (exp.color === 'red') {
+                    labelClasses = 'bg-red-100 text-red-800';
+                } else if (exp.color === 'yellow') {
+                    labelClasses = 'bg-yellow-100 text-yellow-800';
+                } else {
+                    labelClasses = 'bg-green-100 text-green-800';
+                }
 
                 return `
-                            <div class="bg-white rounded-xl shadow-md overflow-hidden fade-in hover:shadow-xl transition-shadow">
-                                <div class="flex items-center">
-                                    <div class="${statusClass} w-2 h-full"></div>
-                                    <div class="flex-1 p-4">
-                                        <div class="flex justify-between items-start mb-2">
-                                            <div class="flex-1">
-                                                <h3 class="font-semibold text-gray-800">${item.nombre}</h3>
-                                                <p class="text-sm text-gray-600">${item.marca || 'Sin marca'}</p>
-                                            </div>
-                                            <div class="flex gap-2">
-                                                <button onclick="window.editProduct(${item.id})" 
-                                                        class="text-blue-500 hover:bg-blue-50 p-2 rounded-lg transition-colors">
-                                                    <i data-lucide="pencil" class="w-4 h-4"></i>
-                                                </button>
-                                                <button onclick="window.deleteProduct(${item.id})" 
-                                                        class="text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors">
-                                                    <i data-lucide="trash-2" class="w-4 h-4"></i>
-                                                </button>
-                                            </div>
-                                        </div>
-                                        
-                                        <div class="flex items-center gap-4 text-sm mb-3">
-                                            <div class="flex items-center gap-1">
-                                                <i data-lucide="calendar" class="w-4 h-4 text-gray-400"></i>
-                                                <span class="text-gray-600">${formatDate(item.vencimiento)}</span>
-                                            </div>
-                                            <div class="px-2 py-1 rounded-full text-xs font-medium text-white ${statusClass}">
-                                                ${exp.label}
-                                            </div>
-                                        </div>
-                                        
-                                        <div class="flex items-center justify-between">
-                                            <div class="flex items-center gap-3">
-                                                <button onclick="window.adjustQuantity(${item.id}, -1)" 
-                                                        class="w-8 h-8 bg-gray-100 hover:bg-gray-200 rounded-full flex items-center justify-center transition-colors">
-                                                    <i data-lucide="minus" class="w-4 h-4"></i>
-                                                </button>
-                                                <span class="font-semibold text-gray-800 min-w-[60px] text-center">
-                                                    ${item.cantidad} ${item.unidad}
+                            <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden fade-in hover:shadow-md transition-all duration-300">
+                                <div class="p-4">
+                                    <div class="flex justify-between items-start mb-3">
+                                        <div class="flex-1">
+                                            <div class="flex items-center gap-2 mb-1">
+                                                <h3 class="font-bold text-gray-800">${item.nombre}</h3>
+                                                <span class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 uppercase font-bold tracking-wider">
+                                                    ${item.categoria || 'Otro'}
                                                 </span>
-                                                <button onclick="window.adjustQuantity(${item.id}, 1)" 
-                                                        class="w-8 h-8 bg-purple-100 hover:bg-purple-200 rounded-full flex items-center justify-center transition-colors">
-                                                    <i data-lucide="plus" class="w-4 h-4 text-purple-600"></i>
-                                                </button>
                                             </div>
-                                            
-                                            <button onclick="window.addToShoppingFromInventory('${item.nombre}')" 
-                                                    class="text-sm text-purple-600 hover:bg-purple-50 px-3 py-1 rounded-lg transition-colors flex items-center gap-1">
-                                                <i data-lucide="shopping-cart" class="w-4 h-4"></i>
-                                                Comprar
+                                            <p class="text-xs text-gray-500">${item.marca || 'Sin marca'}</p>
+                                        </div>
+                                        <div class="flex gap-1">
+                                            <button onclick="window.editProduct(${item.id})" 
+                                                    class="p-2 text-gray-400 hover:text-blue-500 hover:bg-blue-50 rounded-xl transition-all">
+                                                <i data-lucide="pencil" class="w-4 h-4"></i>
+                                            </button>
+                                            <button onclick="window.deleteProduct(${item.id})" 
+                                                    class="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all">
+                                                <i data-lucide="trash-2" class="w-4 h-4"></i>
                                             </button>
                                         </div>
+                                    </div>
+                                    
+                                    <!-- Percentage Level Bar -->
+                                    <div class="mb-4 space-y-2">
+                                        <div class="flex justify-between items-end">
+                                            <div class="flex items-center gap-2">
+                                                <span class="text-[11px] font-bold text-gray-400 uppercase">Nivel</span>
+                                                <div class="flex items-center bg-gray-50 rounded-lg border border-gray-100 px-1">
+                                                    <button onclick="window.adjustQuantity(${item.id}, -1)" class="p-1 px-2 text-gray-400 hover:text-red-500 font-bold">-</button>
+                                                    <span class="text-[10px] font-bold text-gray-600 border-x border-gray-100 px-2 min-w-[20px] text-center">${item.cantidad}</span>
+                                                    <button onclick="window.adjustQuantity(${item.id}, 1)" class="p-1 px-2 text-gray-400 hover:text-green-500 font-bold">+</button>
+                                                </div>
+                                            </div>
+                                            <div class="text-right">
+                                                <span id="qty-text-${item.id}" class="text-[11px] font-bold text-gray-500 mr-2">
+                                                    ${item.cantidad} / ${item.cantidad_total || item.cantidad} ${item.unidad || ''}
+                                                </span>
+                                                <span id="level-text-${item.id}" class="text-sm font-black ${level < 20 ? 'text-red-500' : 'text-gray-700'}">${level}%</span>
+                                            </div>
+                                        </div>
+                                        <div class="relative h-3 bg-gray-100 rounded-full overflow-hidden shadow-inner cursor-pointer">
+                                            <div id="level-bar-${item.id}" class="absolute inset-y-0 left-0 transition-all duration-300 ${level < 20 ? 'bg-red-500' : accentColorClass}" 
+                                                 style="width: ${level}%"></div>
+                                            <input type="range" min="0" max="100" value="${level}" 
+                                                   oninput="window.updateLocalLevel(this, ${item.id}, '${accentColorClass}', ${item.cantidad_total || item.cantidad}, '${item.unidad || ''}')"
+                                                   onchange="window.updateProductLevel(${item.id}, this.value)"
+                                                   class="absolute inset-0 opacity-0 cursor-pointer w-full h-full z-10">
+                                        </div>
+                                    </div>
+
+                                    <div class="flex items-center justify-between pt-3 border-t border-gray-50">
+                                        <div class="flex items-center gap-2 text-xs font-semibold" style="color: ${statusColor}">
+                                            <i data-lucide="calendar" class="w-3.5 h-3.5"></i>
+                                            <span>${formatDate(item.vencimiento)}</span>
+                                            <span class="px-2 py-0.5 rounded-full text-[10px] uppercase font-bold ${labelClasses}">
+                                                ${exp.label}
+                                            </span>
+                                        </div>
+                                        
+                                        <button onclick="window.addToShoppingFromInventory('${item.nombre}')" 
+                                                class="flex items-center gap-1.5 text-xs font-bold text-gray-400 hover:text-purple-600 transition-colors">
+                                            <i data-lucide="shopping-cart" class="w-4 h-4"></i>
+                                            REABASTECER
+                                        </button>
                                     </div>
                                 </div>
                             </div>
                         `;
-            }).join('')}
+            }).join('') || `<div class="text-center py-12 text-gray-400 text-sm">No se encontraron productos en este modo</div>`}
                 </div>
             `;
 
@@ -783,17 +913,32 @@ Responde SOLO con el JSON, sin texto adicional.`;
                             <p class="text-gray-500">No hay artículos en la lista</p>
                         </div>
                     ` : state.shoppingList.map(item => `
-                        <div class="bg-white rounded-lg shadow-sm p-4 flex items-center gap-3 fade-in hover:shadow-md transition-shadow">
+                        <div class="bg-white rounded-xl shadow-sm p-4 flex items-center gap-3 border border-gray-100 fade-in">
                             <input type="checkbox" 
                                    ${item.comprado ? 'checked' : ''} 
                                    onchange="window.toggleShoppingItemUI(${item.id})"
-                                   class="w-5 h-5 text-purple-600 rounded focus:ring-2 focus:ring-purple-500">
-                            <span class="flex-1 ${item.comprado ? 'line-through text-gray-400' : 'text-gray-800'}">
-                                ${item.item_nombre}
-                            </span>
+                                   class="w-5 h-5 rounded border-gray-300 text-purple-600 focus:ring-purple-500 cursor-pointer">
+                            <div class="flex-1 ${item.comprado ? 'opacity-50' : ''}">
+                                <div class="flex items-center gap-2">
+                                    <span class="font-medium ${item.comprado ? 'line-through text-gray-400' : 'text-gray-800'}">
+                                        ${item.item_nombre}
+                                    </span>
+                                    ${item.metadata ? `
+                                        <span class="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-500 font-bold uppercase tracking-tight">
+                                            IA
+                                        </span>
+                                    ` : ''}
+                                </div>
+                                ${item.metadata ? `
+                                    <div class="flex items-center gap-2 mt-0.5">
+                                        <span class="text-[10px] text-gray-400">${item.metadata.marca || ''}</span>
+                                        <span class="text-[10px] py-px text-gray-400 border-l border-gray-200 pl-2">${item.metadata.categoria || ''}</span>
+                                    </div>
+                                ` : ''}
+                            </div>
                             <button onclick="window.deleteShoppingItemUI(${item.id})" 
-                                    class="text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors">
-                                <i data-lucide="trash-2" class="w-4 h-4"></i>
+                                    class="text-gray-300 hover:text-red-500 transition-colors">
+                                <i data-lucide="x" class="w-5 h-5"></i>
                             </button>
                         </div>
                     `).join('')}
@@ -1081,10 +1226,18 @@ Responde SOLO con el JSON, sin texto adicional.`;
                             
                             <div class="grid grid-cols-2 gap-3">
                                 <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">Cantidad</label>
-                                    <input type="number" id="productQuantity" value="${productData.cantidad || productData.cantidad_numerica || 1}" 
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Cant. Actual</label>
+                                    <input type="number" id="productQuantity" step="any" value="${productData.cantidad || productData.cantidad_numerica || 1}" 
                                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500">
                                 </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Capacidad Total</label>
+                                    <input type="number" id="productTotalQuantity" step="any" value="${productData.cantidad_total || productData.cantidad || productData.cantidad_numerica || 1}" 
+                                           class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500">
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-3">
                                 <div>
                                     <label class="block text-sm font-medium text-gray-700 mb-1">Unidad</label>
                                     <select id="productUnit" 
@@ -1096,22 +1249,23 @@ Responde SOLO con el JSON, sin texto adicional.`;
                                         <option value="lb" ${productData.unidad === 'lb' ? 'selected' : ''}>lb</option>
                                     </select>
                                 </div>
-                            </div>
-                            
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Categoría</label>
-                                <select id="productCategory" 
-                                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500">
-                                    <option value="otros" ${productData.categoria === 'otros' ? 'selected' : ''}>Otros</option>
-                                    <option value="lacteos" ${productData.categoria === 'lacteos' ? 'selected' : ''}>Lácteos</option>
-                                    <option value="carnes" ${productData.categoria === 'carnes' ? 'selected' : ''}>Carnes</option>
-                                    <option value="granos" ${productData.categoria === 'granos' ? 'selected' : ''}>Granos</option>
-                                    <option value="enlatados" ${productData.categoria === 'enlatados' ? 'selected' : ''}>Enlatados</option>
-                                    <option value="bebidas" ${productData.categoria === 'bebidas' ? 'selected' : ''}>Bebidas</option>
-                                    <option value="frutas" ${productData.categoria === 'frutas' ? 'selected' : ''}>Frutas</option>
-                                    <option value="verduras" ${productData.categoria === 'verduras' ? 'selected' : ''}>Verduras</option>
-                                    <option value="salsas" ${productData.categoria === 'salsas' ? 'selected' : ''}>Salsas</option>
-                                </select>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Categoría</label>
+                                    <select id="productCategory" 
+                                            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500">
+                                        <option value="otros" ${productData.categoria === 'otros' ? 'selected' : ''}>Otros</option>
+                                        <option value="lacteos" ${productData.categoria === 'lacteos' ? 'selected' : ''}>Lácteos</option>
+                                        <option value="carnes" ${productData.categoria === 'carnes' ? 'selected' : ''}>Carnes</option>
+                                        <option value="granos" ${productData.categoria === 'granos' ? 'selected' : ''}>Granos</option>
+                                        <option value="enlatados" ${productData.categoria === 'enlatados' ? 'selected' : ''}>Enlatados</option>
+                                        <option value="bebidas" ${productData.categoria === 'bebidas' ? 'selected' : ''}>Bebidas</option>
+                                        <option value="frutas" ${productData.categoria === 'frutas' ? 'selected' : ''}>Frutas</option>
+                                        <option value="verduras" ${productData.categoria === 'verduras' ? 'selected' : ''}>Verduras</option>
+                                        <option value="salsas" ${productData.categoria === 'salsas' ? 'selected' : ''}>Salsas</option>
+                                        <option value="limpieza" ${productData.categoria === 'limpieza' ? 'selected' : ''}>Limpieza</option>
+                                        <option value="aseo_personal" ${productData.categoria === 'aseo_personal' ? 'selected' : ''}>Aseo Personal</option>
+                                    </select>
+                                </div>
                             </div>
                             
                             <div>
@@ -1120,13 +1274,22 @@ Responde SOLO con el JSON, sin texto adicional.`;
                                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500">
                             </div>
                             
-                            <div class="flex gap-3 pt-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Sección</label>
+                                <select id="productMode" 
+                                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500">
+                                    <option value="despensa" ${productData.inventory_mode === 'despensa' || !productData.inventory_mode ? 'selected' : ''}>Despensa (Comida)</option>
+                                    <option value="aseo" ${productData.inventory_mode === 'aseo' ? 'selected' : ''}>Aseo (Limpieza/Personal)</option>
+                                </select>
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-3 pt-2">
                                 <button type="button" onclick="window.closeModal()" 
-                                        class="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors">
+                                        class="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 transition-colors font-bold">
                                     Cancelar
                                 </button>
                                 <button type="submit" 
-                                        class="flex-1 px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg hover:scale-105 transition-transform">
+                                        class="flex-1 px-4 py-2 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-xl hover:scale-105 transition-transform font-bold shadow-lg">
                                     ${btnText}
                                 </button>
                             </div>
@@ -1140,33 +1303,40 @@ Responde SOLO con el JSON, sin texto adicional.`;
             document.getElementById('confirmForm').addEventListener('submit', async (e) => {
                 e.preventDefault();
 
-                const item = {
-                    id: isEditing ? productData.id : Date.now(),
-                    nombre: document.getElementById('productName').value,
-                    marca: document.getElementById('productBrand').value,
-                    cantidad: parseFloat(document.getElementById('productQuantity').value),
-                    unidad: document.getElementById('productUnit').value,
-                    categoria: document.getElementById('productCategory').value,
-                    vencimiento: document.getElementById('productExpiration').value || null,
-                    creado_at: isEditing ? productData.creado_at : new Date().toISOString()
-                };
-
                 try {
+                    const qtyString = document.getElementById('productQuantity').value;
+                    const totalQtyString = document.getElementById('productTotalQuantity').value;
+                    const qty = parseFloat(qtyString) || 0;
+                    const totalQty = parseFloat(totalQtyString) || qty || 1;
+                    const calculatedLevel = Math.round((qty / totalQty) * 100);
+
+                    const updatedItem = {
+                        id: isEditing ? productData.id : Date.now(),
+                        nombre: document.getElementById('productName').value,
+                        marca: document.getElementById('productBrand').value,
+                        cantidad: qty,
+                        cantidad_total: totalQty,
+                        unidad: document.getElementById('productUnit').value,
+                        categoria: document.getElementById('productCategory').value,
+                        vencimiento: document.getElementById('productExpiration').value || null,
+                        inventory_mode: document.getElementById('productMode').value,
+                        nivel: calculatedLevel,
+                        creado_at: isEditing ? productData.creado_at : new Date().toISOString()
+                    };
+
                     if (isEditing) {
-                        await updateInventoryItem(item.id, item);
+                        await updateInventoryItem(updatedItem.id, updatedItem);
                         showNotification('✓ Producto actualizado');
                     } else {
-                        await saveInventoryItem(item);
+                        await saveInventoryItem(updatedItem);
                         showNotification('✓ Producto agregado');
                     }
 
                     window.closeModal();
-                    // Just reload inventory tab to refresh data
-                    loadInventory().then(() => {
-                        if (state.currentTab === 'inventory') renderInventory();
-                    });
+                    renderInventory();
 
                 } catch (error) {
+                    console.error('Error al guardar:', error);
                     alert('Error al guardar: ' + error.message);
                 }
             });
@@ -1195,15 +1365,45 @@ Responde SOLO con el JSON, sin texto adicional.`;
             const item = state.inventory.find(i => i.id === id);
             if (!item) return;
 
-            const newQuantity = Math.max(0, item.cantidad + delta);
+            // If quantity_total is missing (legacy), initialize it once
+            if (item.cantidad_total === undefined || item.cantidad_total === null) {
+                item.cantidad_total = item.cantidad || 1;
+            }
+
+            // Adjust scaling based on unit
+            let actualDelta = delta;
+            const unit = (item.unidad || '').toLowerCase();
+            if (unit === 'gr' || unit === 'ml') {
+                actualDelta = delta * 50; // Increments of 50 for weight/volume
+            } else if (unit === 'kg') {
+                actualDelta = delta * 0.1; // Increments of 0.1 for kg
+            }
+
+            const totalQty = Number(item.cantidad_total);
+            const currentQty = Number(item.cantidad);
+            const newQuantity = Math.max(0, Math.round((currentQty + actualDelta) * 100) / 100);
+            const newLevel = Math.min(100, Math.round((newQuantity / totalQty) * 100));
+
             if (newQuantity === 0) {
-                if (confirm('¿Eliminar este producto?')) {
+                if (confirm(`¿El producto "${item.nombre}" se terminó? ¿Deseas agregarlo a la lista de compras?`)) {
+                    await addShoppingItem(item.nombre, item);
+                    await deleteInventoryItem(id);
+                    renderInventory();
+                } else if (confirm('¿Eliminar este producto?')) {
                     await deleteInventoryItem(id);
                     renderInventory();
                 }
             } else {
-                await updateInventoryItem(id, { cantidad: newQuantity });
-                renderInventory();
+                try {
+                    await updateInventoryItem(id, {
+                        cantidad: newQuantity,
+                        nivel: newLevel,
+                        cantidad_total: totalQty
+                    });
+                    renderInventory();
+                } catch (error) {
+                    alert('Error al actualizar cantidad: ' + error.message);
+                }
             }
         };
 
@@ -1270,6 +1470,112 @@ Responde SOLO con el JSON, sin texto adicional.`;
             }).catch(err => {
                 alert('Error al copiar: ' + err.message);
             });
+        };
+
+        // --- NEW PHASE 3 FUNCTIONS ---
+
+        window.setInventoryMode = function (mode) {
+            state.inventory_mode = mode;
+
+            // Update Body Theme
+            const body = document.body;
+            if (mode === 'aseo') {
+                body.classList.remove('from-blue-50', 'via-purple-50', 'to-pink-50');
+                body.classList.add('from-green-50', 'via-emerald-50', 'to-teal-50');
+            } else {
+                body.classList.remove('from-green-50', 'via-emerald-50', 'to-teal-50');
+                body.classList.add('from-blue-50', 'via-purple-50', 'to-pink-50');
+            }
+
+            renderInventory();
+        };
+
+        window.handleInventorySearch = function (query) {
+            state.inventorySearch = query;
+            renderInventory();
+            // Maintain focus on search input
+            const input = document.getElementById('inventorySearchInput');
+            if (input) input.focus();
+        };
+
+        window.setInventorySort = function (sort) {
+            state.inventorySort = sort;
+            renderInventory();
+        };
+
+        window.updateLocalLevel = function (input, id, defaultClass, totalQty, unit) {
+            const val = input.value;
+            const text = document.getElementById(`level-text-${id}`);
+            const qtyText = document.getElementById(`qty-text-${id}`);
+            const bar = document.getElementById(`level-bar-${id}`);
+
+            if (text) {
+                text.textContent = val + '%';
+                text.className = `text-sm font-black ${val < 20 ? 'text-red-500' : 'text-gray-700'}`;
+            }
+
+            if (qtyText) {
+                const currentQty = ((val / 100) * totalQty).toFixed(1).replace(/\.0$/, '');
+                qtyText.textContent = `${currentQty} / ${totalQty} ${unit}`;
+            }
+
+            if (bar) {
+                bar.style.width = val + '%';
+                // Toggle red color if low
+                if (val < 20) {
+                    bar.classList.add('bg-red-500');
+                    bar.classList.remove(defaultClass);
+                } else {
+                    bar.classList.remove('bg-red-500');
+                    bar.classList.add(defaultClass);
+                }
+                // Faster transition for dragging
+                bar.style.transitionDuration = '100ms';
+            }
+        };
+
+        window.updateProductLevel = async function (id, level) {
+            level = parseInt(level);
+            const item = state.inventory.find(i => i.id === id);
+            if (!item) return;
+
+            // If quantity_total is missing (legacy), initialize it once
+            if (item.cantidad_total === undefined || item.cantidad_total === null) {
+                item.cantidad_total = item.cantidad;
+            }
+
+            const totalQty = item.cantidad_total;
+            const newQty = Math.round(((level / 100) * totalQty) * 100) / 100;
+
+            if (level === 0) {
+                if (confirm(`¿El producto "${item.nombre}" se terminó? ¿Deseas agregarlo a la lista de compras?`)) {
+                    await addShoppingItem(item.nombre, item); // Pass item for metadata
+                    await deleteInventoryItem(id);
+                    renderInventory();
+                    showNotification('✓ Agregado a compras y removido de inventario');
+                } else if (confirm('¿Deseas eliminarlo del inventario?')) {
+                    await deleteInventoryItem(id);
+                    renderInventory();
+                } else {
+                    // Reset to small amount if they don't want to delete/shop
+                    item.nivel = 5;
+                    item.cantidad = (5 / 100) * totalQty;
+                    await updateInventoryItem(id, { nivel: 5, cantidad: item.cantidad });
+                    renderInventory();
+                }
+                return;
+            }
+
+            try {
+                // Optimistic update
+                item.nivel = level;
+                item.cantidad = newQty;
+                await updateInventoryItem(id, { nivel: level, cantidad: newQty });
+                renderInventory();
+            } catch (error) {
+                console.error('Error actualizando nivel:', error);
+                alert('No se pudo guardar el nivel. Asegúrate de haber actualizado las tablas en Supabase.');
+            }
         };
 
         // ============================================
