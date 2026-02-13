@@ -33,29 +33,31 @@
         @keyframes fadeIn {
             from {
                 opacity: 0;
-                transform: translateY(10px);
             }
 
             to {
                 opacity: 1;
-                transform: translateY(0);
             }
         }
 
-        @keyframes pulse {
-
-            0%,
-            100% {
-                transform: scale(1);
+        @keyframes scaleIn {
+            from {
+                opacity: 0;
+                transform: scale(0.9);
             }
 
-            50% {
-                transform: scale(1.05);
+            to {
+                opacity: 1;
+                transform: scale(1);
             }
         }
 
         .fade-in {
-            animation: fadeIn 0.3s ease-out;
+            animation: fadeIn 0.3s ease-out forwards;
+        }
+
+        .scale-in {
+            animation: scaleIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
         }
 
         .pulse-animation {
@@ -448,29 +450,36 @@
         }
 
         async function addShoppingItem(itemName, metadata = null) {
-            const item = {
-                id: Date.now(),
+            // Clean metadata to be simple POJO
+            const cleanMetadata = metadata ? JSON.parse(JSON.stringify(metadata)) : null;
+
+            const newItem = {
+                id: Date.now(), // Fallback for local
                 item_nombre: itemName,
                 comprado: false,
-                metadata: metadata, // Store full product data if available
+                metadata: cleanMetadata,
                 creado_at: new Date().toISOString()
             };
 
             if (!supabase) {
-                state.shoppingList.push(item);
+                state.shoppingList.unshift(newItem);
                 localStorage.setItem('despensIA_shopping', JSON.stringify(state.shoppingList));
-                return item;
+                return newItem;
             }
 
             try {
+                // Don't send the manual ID to Supabase to let it use BIGSERIAL
+                const { id: _, ...supabaseItem } = newItem;
                 const { data, error } = await supabase
                     .from('lista_compras')
-                    .insert([item])
+                    .insert([supabaseItem])
                     .select()
                     .single();
 
                 if (error) throw error;
-                state.shoppingList.push(data);
+
+                // Add to the front of the local list (to match descending order)
+                state.shoppingList.unshift(data);
                 return data;
             } catch (error) {
                 console.error('Error agregando item:', error);
@@ -479,15 +488,22 @@
         }
 
         async function toggleShoppingItem(id) {
-            const item = state.shoppingList.find(i => i.id === id);
+            const searchId = id.toString();
+            const item = state.shoppingList.find(i => i.id.toString() === searchId);
             if (!item) return;
 
             const newStatus = !item.comprado;
 
             // If purchased and has metadata, auto-return to inventory
             if (newStatus && item.metadata) {
-                const confirmReturn = confirm(`¿Deseas devolver "${item.item_nombre}" al inventario automáticamente? (Se reiniciará al 100%)`);
-                if (confirmReturn) {
+                const confirmed = await window.showConfirmDialog({
+                    title: '¿Devolver a Inventario?',
+                    message: `¿Deseas devolver "${item.item_nombre}" al inventario automáticamente? Se reiniciará al 100%.`,
+                    confirmText: 'Devolver',
+                    type: 'success'
+                });
+
+                if (confirmed) {
                     const inventoryItem = {
                         ...item.metadata,
                         id: Date.now(),
@@ -519,8 +535,9 @@
         }
 
         async function deleteShoppingItem(id) {
+            const searchId = id.toString();
             if (!supabase) {
-                state.shoppingList = state.shoppingList.filter(i => i.id !== id);
+                state.shoppingList = state.shoppingList.filter(i => i.id.toString() !== searchId);
                 localStorage.setItem('despensIA_shopping', JSON.stringify(state.shoppingList));
                 return;
             }
@@ -532,7 +549,7 @@
                     .eq('id', id);
 
                 if (error) throw error;
-                state.shoppingList = state.shoppingList.filter(i => i.id !== id);
+                state.shoppingList = state.shoppingList.filter(i => i.id.toString() !== searchId);
             } catch (error) {
                 console.error('Error eliminando item:', error);
             }
@@ -854,7 +871,7 @@ Responde SOLO con el JSON, sin texto adicional.`;
                                             </span>
                                         </div>
                                         
-                                        <button onclick="window.addToShoppingFromInventory('${item.nombre}')" 
+                                        <button onclick="window.addToShoppingFromInventory(${item.id})" 
                                                 class="flex items-center gap-1.5 text-xs font-bold text-gray-400 hover:text-purple-600 transition-colors">
                                             <i data-lucide="shopping-cart" class="w-4 h-4"></i>
                                             REABASTECER
@@ -931,8 +948,8 @@ Responde SOLO con el JSON, sin texto adicional.`;
                                 </div>
                                 ${item.metadata ? `
                                     <div class="flex items-center gap-2 mt-0.5">
-                                        <span class="text-[10px] text-gray-400">${item.metadata.marca || ''}</span>
-                                        <span class="text-[10px] py-px text-gray-400 border-l border-gray-200 pl-2">${item.metadata.categoria || ''}</span>
+                                        <span class="text-[10px] text-gray-400 capitalize">${item.metadata.marca || ''}</span>
+                                        <span class="text-[10px] py-px text-gray-400 border-l border-gray-200 pl-2 capitalize">${item.metadata.categoria || ''}</span>
                                     </div>
                                 ` : ''}
                             </div>
@@ -1357,6 +1374,62 @@ Responde SOLO con el JSON, sin texto adicional.`;
             }, 3000);
         }
 
+        window.showConfirmDialog = function ({ title, message, confirmText = 'Aceptar', cancelText = 'Cancelar', type = 'info' }) {
+            return new Promise((resolve) => {
+                const modal = document.createElement('div');
+                modal.className = 'fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm fade-in';
+
+                let icon = 'help-circle';
+                let iconColor = 'text-blue-500';
+                let btnColor = 'bg-blue-600';
+
+                if (type === 'danger') {
+                    icon = 'alert-triangle';
+                    iconColor = 'text-red-500';
+                    btnColor = 'bg-red-600';
+                } else if (type === 'success') {
+                    icon = 'check-circle';
+                    iconColor = 'text-green-500';
+                    btnColor = 'bg-green-600';
+                }
+
+                modal.innerHTML = `
+                    <div class="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl scale-in">
+                        <div class="flex flex-col items-center text-center">
+                            <div class="p-3 bg-gray-50 rounded-full mb-4 ${iconColor}">
+                                <i data-lucide="${icon}" class="w-8 h-8"></i>
+                            </div>
+                            <h3 class="text-lg font-black text-gray-800 mb-2">${title}</h3>
+                            <p class="text-sm text-gray-500 font-medium mb-6">${message}</p>
+                            
+                            <div class="flex gap-3 w-full">
+                                <button id="dialogCancel" class="flex-1 px-4 py-2 border border-gray-200 text-gray-600 rounded-xl font-bold hover:bg-gray-50 transition-colors">
+                                    ${cancelText}
+                                </button>
+                                <button id="dialogConfirm" class="flex-1 px-4 py-2 ${btnColor} text-white rounded-xl font-bold hover:opacity-90 transition-opacity">
+                                    ${confirmText}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+
+                document.body.appendChild(modal);
+                lucide.createIcons();
+
+                const cleanup = (val) => {
+                    modal.classList.add('opacity-0');
+                    setTimeout(() => {
+                        modal.remove();
+                        resolve(val);
+                    }, 200);
+                };
+
+                modal.querySelector('#dialogConfirm').onclick = () => cleanup(true);
+                modal.querySelector('#dialogCancel').onclick = () => cleanup(false);
+            });
+        };
+
         // ============================================
         // GLOBAL FUNCTIONS (exposed to window)
         // ============================================
@@ -1385,13 +1458,30 @@ Responde SOLO con el JSON, sin texto adicional.`;
             const newLevel = Math.min(100, Math.round((newQuantity / totalQty) * 100));
 
             if (newQuantity === 0) {
-                if (confirm(`¿El producto "${item.nombre}" se terminó? ¿Deseas agregarlo a la lista de compras?`)) {
+                const addToList = await window.showConfirmDialog({
+                    title: '¿Producto agotado?',
+                    message: `"${item.nombre}" llegó a cero. ¿Quieres agregarlo a la lista de compras y quitarlo del inventario?`,
+                    confirmText: 'Agregar y Eliminar',
+                    cancelText: 'Solo Eliminar',
+                    type: 'success'
+                });
+
+                if (addToList) {
                     await addShoppingItem(item.nombre, item);
                     await deleteInventoryItem(id);
+                    showNotification('✓ Agregado a la lista de compras');
                     renderInventory();
-                } else if (confirm('¿Eliminar este producto?')) {
-                    await deleteInventoryItem(id);
-                    renderInventory();
+                } else {
+                    const confirmDel = await window.showConfirmDialog({
+                        title: '¿Eliminar producto?',
+                        message: '¿Estás seguro de que quieres quitar este producto del inventario?',
+                        confirmText: 'Eliminar',
+                        type: 'danger'
+                    });
+                    if (confirmDel) {
+                        await deleteInventoryItem(id);
+                        renderInventory();
+                    }
                 }
             } else {
                 try {
@@ -1408,7 +1498,14 @@ Responde SOLO con el JSON, sin texto adicional.`;
         };
 
         window.deleteProduct = async function (id) {
-            if (confirm('¿Estás seguro de eliminar este producto?')) {
+            const item = state.inventory.find(i => i.id === id);
+            const confirmed = await window.showConfirmDialog({
+                title: '¿Eliminar producto?',
+                message: `¿Estás seguro de eliminar "${item?.nombre || 'este producto'}"?`,
+                confirmText: 'Eliminar',
+                type: 'danger'
+            });
+            if (confirmed) {
                 await deleteInventoryItem(id);
                 renderInventory();
             }
@@ -1421,9 +1518,19 @@ Responde SOLO con el JSON, sin texto adicional.`;
             }
         };
 
-        window.addToShoppingFromInventory = async function (productName) {
-            await addShoppingItem(productName);
-            showNotification(`✓ "${productName}" agregado a la lista de compras`);
+        window.addToShoppingFromInventory = async function (id) {
+            const item = state.inventory.find(i => i.id === id);
+            if (!item) return;
+
+            try {
+                await addShoppingItem(item.nombre, item);
+                showNotification(`✓ "${item.nombre}" agregado a la lista de compras`);
+                if (state.currentTab === 'shopping') {
+                    renderShoppingList();
+                }
+            } catch (error) {
+                alert('No se pudo agregar a la lista: ' + error.message);
+            }
         };
 
         window.addShoppingItemUI = async function () {
@@ -1548,20 +1655,34 @@ Responde SOLO con el JSON, sin texto adicional.`;
             const newQty = Math.round(((level / 100) * totalQty) * 100) / 100;
 
             if (level === 0) {
-                if (confirm(`¿El producto "${item.nombre}" se terminó? ¿Deseas agregarlo a la lista de compras?`)) {
-                    await addShoppingItem(item.nombre, item); // Pass item for metadata
+                const addToList = await window.showConfirmDialog({
+                    title: '¿Producto agotado?',
+                    message: `"${item.nombre}" llegó a cero. ¿Deseas agregarlo a la lista de compras y quitarlo del inventario?`,
+                    confirmText: 'Agregar y Eliminar',
+                    cancelText: 'Solo Eliminar',
+                    type: 'success'
+                });
+
+                if (addToList) {
+                    await addShoppingItem(item.nombre, item);
                     await deleteInventoryItem(id);
                     renderInventory();
-                    showNotification('✓ Agregado a compras y removido de inventario');
-                } else if (confirm('¿Deseas eliminarlo del inventario?')) {
-                    await deleteInventoryItem(id);
-                    renderInventory();
+                    showNotification('✓ Agregado a la lista de compras');
                 } else {
-                    // Reset to small amount if they don't want to delete/shop
-                    item.nivel = 5;
-                    item.cantidad = (5 / 100) * totalQty;
-                    await updateInventoryItem(id, { nivel: 5, cantidad: item.cantidad });
-                    renderInventory();
+                    const confirmDel = await window.showConfirmDialog({
+                        title: '¿Eliminar producto?',
+                        message: '¿Estás seguro de que quieres quitar este producto del inventario?',
+                        confirmText: 'Eliminar',
+                        type: 'danger'
+                    });
+                    if (confirmDel) {
+                        await deleteInventoryItem(id);
+                        renderInventory();
+                    } else {
+                        // Reset to small amount if they don't want to delete/shop
+                        await updateInventoryItem(id, { nivel: 5, cantidad: (5 / 100) * totalQty });
+                        renderInventory();
+                    }
                 }
                 return;
             }
